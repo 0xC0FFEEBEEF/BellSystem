@@ -27,18 +27,13 @@ public static class DeviceEndpoints
             return Http.Json(receipts.RecentBells(limit, time.GetUtcNow().ToUnixTimeMilliseconds()));
         });
 
-        // Honest S2 stubs — live media relay and announcements are deferred to milestone S2.
-        IResult Stub() => Err.Detail(501, "announcements and live media relay land in milestone S2");
-        app.MapGet("/api/announcements", (HttpContext ctx) => Stub());
-        app.MapPost("/api/announcements", (HttpContext ctx) => Stub());
-        app.MapPost("/api/announcements/lease", (HttpContext ctx) => Stub());
-        app.Map("/ws/media", async (HttpContext ctx) =>
-        {
-            ctx.Response.StatusCode = 501;
-            await ctx.Response.WriteAsJsonAsync(new
-            {
-                detail = "media relay lands in milestone S2",
-            }, Util.ApiJson);
-        });
+        // Milestone S2 built the real announcement API on its own paths
+        // (api/announcements/lease, /live, /live/end, /recorded, /active, api/history) and the real
+        // media relay (/ws/mic, /ws/media). These bare paths are not resources; they answer honestly
+        // instead of pretending to be one. The POST stub keeps the shape the S1 build published.
+        app.MapGet("/api/announcements", (HttpContext ctx) =>
+            Err.Detail(404, "no such endpoint; use GET api/history or GET api/announcements/active (milestone S2 live API)"));
+        app.MapPost("/api/announcements", (HttpContext ctx) =>
+            Err.Detail(501, "POST /api/announcements is not an endpoint (milestone S2 uses api/announcements/live and api/announcements/recorded)"));
     }
 }

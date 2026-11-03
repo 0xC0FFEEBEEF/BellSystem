@@ -240,18 +240,17 @@ public sealed class MediaRouter
         var bytes = File.ReadAllBytes(wavPath);
         var parsed = Wav.Parse(bytes);
         if (parsed is null) yield break;
-        var pcm = parsed.Pcm(bytes);
+        byte[] pcm = parsed.Pcm(bytes).ToArray();
         uint seq = 0;
         const int frameBytes = Protocol.MaxMediaPayloadBytes;       // 320 samples @ 16 kHz = 20 ms
         for (int off = 0; off < pcm.Length; off += frameBytes)
         {
             int len = Math.Min(frameBytes, pcm.Length - off);
-            var pcmSlice = pcm.Slice(off, len).ToArray();
+            var pcmSlice = pcm.AsSpan(off, len).ToArray();
             bool last = off + len >= pcm.Length;
             yield return new MediaFrame(++seq, baseCaptureTsMs + (ulong)(off / 2.0 / Protocol.SampleRate * 1000.0),
                 last ? MediaFrame.FlagLast : (byte)0, pcmSlice);
         }
-        fs.Dispose();
     }
 
     private static void TryCloseSocket(DeviceStream s, WebSocketCloseStatus status, string reason)

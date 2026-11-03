@@ -8,13 +8,21 @@ namespace SchoolBell.Server;
 
 public static class Util
 {
-    public const string ServerVersion = "1.0.0-s1";
+    public const string ServerVersion = "1.1.0-s2";
 
     /// snake_case options for our own API DTOs (Contracts types use ControlEnvelope.Json).
     public static readonly JsonSerializerOptions ApiJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    /// Same shape as ApiJson but nulls are written out: for the office UI a missing field and a
+    /// present-but-null field must not be confused (e.g. "no active lease").
+    public static readonly JsonSerializerOptions ApiJsonVisibleNulls = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
     };
 
     public static readonly JsonSerializerOptions ApiRead = new()

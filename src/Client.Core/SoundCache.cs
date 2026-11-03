@@ -92,7 +92,7 @@ public sealed class SoundCache
 
         // Atomic swap: current → old, stage → current, then drop old.
         var old = System.IO.Path.Combine(_root, "old-" + Guid.NewGuid().ToString("N"));
-        TryDeleteStaleAuxDirs();
+        TryDeleteStaleAuxDirs(except: stage);
         if (Directory.Exists(CurrentDir)) Directory.Move(CurrentDir, old);
         try
         {
@@ -108,11 +108,12 @@ public sealed class SoundCache
         return new(true, null, downloaded, reused, CurrentDir);
     }
 
-    private void TryDeleteStaleAuxDirs()
+    private void TryDeleteStaleAuxDirs(string except)
     {
         foreach (var dir in Directory.GetDirectories(_root))
         {
             var name = System.IO.Path.GetFileName(dir);
+            if (dir == except) continue;
             if (name.StartsWith("stage-") || name.StartsWith("old-")) TryDeleteTree(dir);
         }
     }

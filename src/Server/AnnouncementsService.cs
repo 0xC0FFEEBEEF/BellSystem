@@ -489,7 +489,7 @@ public sealed partial class AnnouncementsService
         recording_sample_rate, frames_sent
         """;
 
-    private static AnnouncementRow Read(SqliteConnection conn, string announcementId)
+    private static AnnouncementRow? Read(SqliteConnection conn, string announcementId)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"SELECT {AnnColumns} FROM announcements WHERE announcement_id = $a";
@@ -541,13 +541,14 @@ public sealed partial class AnnouncementsService
     private static void RecordDelivery(SqliteConnection conn, SqliteTransaction? tx, string announcementId,
         string deviceId, string state, string? errorCode, string source)
     {
-        conn.Run(tx, """
+        const string sql = """
             INSERT INTO delivery_results(announcement_id, device_id, state, error_code, source, updated_at)
             VALUES ($a, $d, $s, $e, $o, $t)
             ON CONFLICT(announcement_id, device_id, state) DO UPDATE SET error_code = $e, source = $o, updated_at = $t
-            """,
-            ("$a", announcementId), ("$d", deviceId), ("$s", state), ("$e", errorCode), ("$o", source),
-            ("$t", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
+            """;
+        var ps = new (string, object?)[] { ("$a", announcementId), ("$d", deviceId), ("$s", state),
+            ("$e", errorCode), ("$o", source), ("$t", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) };
+        if (tx is null) conn.Run(sql, ps); else conn.Run(tx, sql, ps);
     }
 
     /// Resolve the target SERVER-SIDE to the exact device list frozen for this announcement.

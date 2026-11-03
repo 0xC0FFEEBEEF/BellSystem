@@ -15,7 +15,7 @@ public sealed record AnnouncementView(AnnouncementRow Announcement, List<DeviceD
     Dictionary<string, int> FinalCounts, int Targeted, int AudibleCompleted, int SocketDelivered,
     Dictionary<string, int> TranscriptStatus)
 {
-    public object RecordingView() => Announcement.RecordingPath is null ? (object?)null : new
+    public object? RecordingView() => Announcement.RecordingPath is null ? null : new
     {
         path = Announcement.RecordingPath,
         sha256 = Announcement.RecordingSha256,
@@ -192,15 +192,20 @@ public sealed partial class AnnouncementsService
 
     private static void EnsureTranscriptQueued(SqliteConnection conn, SqliteTransaction? tx, string announcementId, long now)
     {
-        conn.Run(tx, """
+        const string transcriptSql = """
             INSERT INTO transcripts(announcement_id, status, created_at, updated_at)
             VALUES ($a, 'pending', $t, $t) ON CONFLICT(announcement_id) DO NOTHING
-            """, ("$a", announcementId), ("$t", now));
-        conn.Run(tx, """
+            """;
+        const string jobSql = """
             INSERT INTO transcript_jobs(announcement_id, status, attempts, max_attempts, created_at, updated_at)
             SELECT $a, 'queued', 0, $m, $t, $t
             WHERE NOT EXISTS (SELECT 1 FROM transcript_jobs WHERE announcement_id = $a)
-            """, ("$a", announcementId), ("$m", LiveSettings.TranscriptionMaxAttempts), ("$t", now));
+            """;
+        var tps = new (string, object?)[] { ("$a", announcementId), ("$t", now) };
+        var jps = new (string, object?)[] { ("$a", announcementId),
+            ("$m", LiveSettings.TranscriptionMaxAttempts), ("$t", now) };
+        if (tx is null) { conn.Run(transcriptSql, tps); conn.Run(jobSql, jps); }
+        else { conn.Run(tx, transcriptSql, tps); conn.Run(tx, jobSql, jps); }
     }
 
     public object TranscriptQueueStatus()
@@ -223,7 +228,7 @@ public sealed partial class AnnouncementsService
         return new
         {
             transcription_enabled = _settings.TranscriptionEnabled,
-            engine = (string?)null,
+            engine = "none",
             note = "no transcription engine is integrated in milestone S2; jobs stay queued and nothing is faked",
             jobs = new
             {
@@ -247,7 +252,7 @@ public sealed partial class AnnouncementsService
     public object ActiveSummary(CurrentUser user)
     {
         var lease = _leases.ActiveLease();
-        var list = new List<object>();
+        var list = new List<string>();
         using var conn = _db.Open();
         using (var cmd = conn.CreateCommand())
         {
@@ -379,30 +384,14 @@ public sealed partial class AnnouncementsService
 
     // ---------------------------------------------------------------- diagnostics helpers
 
-    public object LiveDiagnosticsView()
+    // ---- diagnostics accessors (used by /api/diagnostics) ----
+
+    public List<QueueDepth> MediaQueueDepths() => _media.QueueDepths();
+    public int ActiveMicConnections() => _media.ActiveMicConnections;
+
+    public int ActiveAnnouncementCount()
     {
         using var conn = _db.Open();
-        var active = conn.ScalarInt("SELECT COUNT(*) FROM announcements WHERE status = 'active'");
-        var activeIds = new List<string>();
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT announcement_id FROM announcements WHERE status = 'active' LIMIT 20";
-            using var r = cmd.ExecuteReader();
-            while (r.Read()) activeIds.Add(r.GetString(0));
-        }
-        var live = _media.QueueDepths();
-        return new
-        {
-            active_announcements = active,
-            active_announcement_ids = activeIds,
-            media_queue_depths = live.Select(d => new
-            {
-                announcement_id = d.AnnouncementId,
-                devices = d.Devices,
-                max_frames = d.MaxFrames,
-                mean_frames = d.MeanFrames,
-            }),
-            active_mic_connections = _media.ActiveMicConnections,
-        };
+        return conn.ScalarInt("SELECT COUNT(*) FROM announcements WHERE status = 'active'");
     }
 }

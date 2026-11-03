@@ -40,7 +40,27 @@ builder.Services.AddSingleton<ControlHub>();
 builder.Services.AddSingleton<Bootstrap>();
 builder.Services.AddHostedService<BootstrapHost>();
 
+// ---- milestone S2: talk lease, live announcements, media relay, recordings, history ----
+builder.Services.AddSingleton<LiveSettings>();
+builder.Services.AddSingleton<LiveMetrics>();
+builder.Services.AddSingleton<MediaRouter>();
+builder.Services.AddSingleton<TalkLeaseService>();
+builder.Services.AddSingleton<AnnouncementsService>();
+builder.Services.AddSingleton<LiveWsHub>();
+builder.Services.AddSingleton<ITranscriptionEngine, NoTranscriptionEngine>();   // S3 wires whisper.cpp
+builder.Services.AddHostedService<AnnouncementSweeperHost>();
+builder.Services.AddHostedService<TranscriptionWorkerHost>();
+builder.Services.AddHostedService<RetentionWorkerHost>();
+
 var app = builder.Build();
+
+// MediaRouter callbacks are assigned (not constructor-injected) so the media path never depends on
+// the announcement service and the dependency graph stays acyclic.
+var mediaRouter = app.Services.GetRequiredService<MediaRouter>();
+var announcementsService = app.Services.GetRequiredService<AnnouncementsService>();
+mediaRouter.OnFirstFrameSent = announcementsService.RecordStreamStarted;
+mediaRouter.OnQueueOverflow = announcementsService.RecordQueueOverflow;
+mediaRouter.OnStreamClosed = announcementsService.RecordMediaSocketClosed;
 
 app.UseWebSockets(new WebSocketOptions
 {
@@ -54,14 +74,18 @@ EnrollmentEndpoints.Map(app);
 ScheduleEndpoints.Map(app);
 AdminEndpoints.Map(app);
 DeviceEndpoints.Map(app);
+AnnouncementsEndpoints.Map(app);
 
 app.Map("/ws/control", async (HttpContext ctx, ControlHub hub) => await hub.HandleAsync(ctx));
+// Office microphone (cookie session + Origin check + talk lease) and device media (single-use OTP).
+app.Map("/ws/mic", async (HttpContext ctx, LiveWsHub ws) => await ws.HandleMicAsync(ctx));
+app.Map("/ws/media", async (HttpContext ctx, LiveWsHub ws) => await ws.HandleMediaAsync(ctx));
 
 app.MapGet("/", () => Results.Json(new
 {
     server = "schoolbell",
     version = Util.ServerVersion,
-    status = "api only in milestone S1 (office UI arrives with the web milestone)",
+    status = "api only (office UI arrives with the web milestone); milestone S2 live: talk lease, live announcements, media relay, recordings, history",
 }, Util.ApiJson));
 
 app.Run();

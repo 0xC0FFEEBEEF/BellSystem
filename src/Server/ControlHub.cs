@@ -24,14 +24,20 @@ public sealed class ControlHub
     private readonly KeepAwakeService _keepAwake;
     private readonly PublishService _publish;
     private readonly ILogger<ControlHub> _log;
+
+    /// Milestone S2 additions (optional so the S1 test harness still constructs ControlHub with
+    /// its original 9 arguments). Null in service-layer tests that do not exercise announcements.
+    private readonly AnnouncementsService? _announcements;
     private long _rejectedLimitReached;
 
     public ControlHub(Db db, ServerConfig cfg, TimeProvider time, ControlRegistry registry,
         OutboxService outbox, DevicesService devices, ReceiptsService receipts,
-        KeepAwakeService keepAwake, PublishService publish, ILogger<ControlHub> log)
+        KeepAwakeService keepAwake, PublishService publish, ILogger<ControlHub> log,
+        AnnouncementsService? announcements = null)
     {
         _db = db; _cfg = cfg; _time = time; _registry = registry; _outbox = outbox;
         _devices = devices; _receipts = receipts; _keepAwake = keepAwake; _publish = publish; _log = log;
+        _announcements = announcements;
     }
 
     public long RejectedAtConnectionLimit => Interlocked.Read(ref _rejectedLimitReached);
@@ -197,6 +203,35 @@ public sealed class ControlHub
                     conn.Close(WebSocketCloseStatus.PolicyViolation, "invalid receipt");
                     return false;
                 }
+                // Milestone S2: a receipt naming an announcement also updates that announcement's
+                // delivery results (device-reported states stay attributed to the device).
+                _announcements?.OnDeviceReceipt(deviceId, rcpt.OccurrenceOrAnnouncementId, rcpt.State, rcpt.ErrorCode);
+                return true;
+            case Protocol.TAnnouncementReady:
+                var ready = PayloadSerializer.ToPayload<AnnouncementReadyPayload>(env);
+                if (ready is null || string.IsNullOrEmpty(ready.AnnouncementId))
+                {
+                    conn.Close(WebSocketCloseStatus.PolicyViolation, "invalid announcement.ready");
+                    return false;
+                }
+                if (_announcements is null || !_announcements.RecordReady(deviceId, ready.AnnouncementId, ready.OutputDevice))
+                {
+                    conn.Close(WebSocketCloseStatus.PolicyViolation, "announcement.ready names an unknown announcement or device");
+                    return false;
+                }
+                return true;
+            case Protocol.TAnnouncementReject:
+                var reject = PayloadSerializer.ToPayload<AnnouncementRejectPayload>(env);
+                if (reject is null || string.IsNullOrEmpty(reject.AnnouncementId))
+                {
+                    conn.Close(WebSocketCloseStatus.PolicyViolation, "invalid announcement.reject");
+                    return false;
+                }
+                if (_announcements is null || !_announcements.RecordReject(deviceId, reject.AnnouncementId, reject.Reason))
+                {
+                    conn.Close(WebSocketCloseStatus.PolicyViolation, "announcement.reject names an unknown announcement or device");
+                    return false;
+                }
                 return true;
             case Protocol.TScheduleAck:
                 var ack = PayloadSerializer.ToPayload<ScheduleAckPayload>(env);
@@ -251,11 +286,20 @@ public sealed class ControlHub
         if (!string.IsNullOrEmpty(payload.Cursor))
             _devices.UpdateCursor(deviceId, payload.Cursor);
 
-        // (b) replay outbox events after cursor
+        // (b) replay outbox events after cursor. Milestone S2 replay filter: an expired live
+        // announcement.offer is never replayed (the device is reported `expired` instead) and a
+        // used/expired media token is never replayed; recorded offers replay while valid.
         var replayed = _outbox.Replay(deviceId, payload.Cursor);
         foreach (var json in replayed)
         {
-            if (ControlEnvelope.Parse(json) is ControlEnvelope e && e.Type == Protocol.TScheduleManifest)
+            if (ControlEnvelope.Parse(json) is not ControlEnvelope e) continue;
+            if (_announcements is not null && !_announcements.OutboxReplayOk(deviceId, e))
+            {
+                _log.LogInformation("outbox replay skipped {EventType} for device {DeviceId} (expired live offer, or a used/expired media token)",
+                    e.Type, deviceId);
+                continue;
+            }
+            if (e.Type == Protocol.TScheduleManifest)
                 _log.LogDebug("outbox replay includes schedule.manifest for {DeviceId}", deviceId);
             conn.SendRaw(json);
         }

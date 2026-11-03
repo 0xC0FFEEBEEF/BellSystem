@@ -24,7 +24,7 @@ public class SoundCacheTests
     private static string Sha256(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
 
     [Fact]
-    public void Atomic_swap_keeps_old_cache_on_hash_mismatch()
+    public async Task Atomic_swap_keeps_old_cache_on_hash_mismatch()
     {
         var dir = TestDirs.Create("cache-hash");
         try
@@ -34,18 +34,20 @@ public class SoundCacheTests
             var handler = new StubSoundHandler { Files = { ["/api/sounds/std-bell"] = good } };
             var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:1/") };
 
-            var first = cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(good), "/api/sounds/std-bell")], default)
-                .GetAwaiter().GetResult();
+            var first = await cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(good), "/api/sounds/std-bell")], default)
+                ;
             Assert.True(first.Success);
             var path = cache.GetSoundPath("std-bell")!;
             Assert.Equal(good, File.ReadAllBytes(path));
 
-            // Second attempt serves WRONG bytes under the same URL (hash mismatch):
+            // Second revision expects different bytes but the server delivers something
+            // whose hash matches NEITHER expectation: download fails verification and
             // the old cache must survive intact.
             var bad = Encoding.UTF8.GetBytes("CORRUPTED OR ATTACKED BYTES");
-            handler.Files["/api/sounds/std-bell"] = bad;
-            var second = cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(good), "/api/sounds/std-bell")], default)
-                .GetAwaiter().GetResult();
+            var unexpected = Encoding.UTF8.GetBytes("SOMETHING ELSE ENTIRELY");
+            handler.Files["/api/sounds/std-bell"] = unexpected;
+            var second = await cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(bad), "/api/sounds/std-bell")], default)
+                ;
 
             Assert.False(second.Success);
             Assert.StartsWith("hash_mismatch", second.Failure);
@@ -58,7 +60,7 @@ public class SoundCacheTests
     }
 
     [Fact]
-    public void Fetch_replaces_cache_atomically_and_reuses_matching_hashes()
+    public async Task Fetch_replaces_cache_atomically_and_reuses_matching_hashes()
     {
         var dir = TestDirs.Create("cache-swap");
         try
@@ -69,17 +71,17 @@ public class SoundCacheTests
             var handler = new StubSoundHandler { Files = { ["/api/sounds/std-bell"] = v1 } };
             var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:1/") };
 
-            Assert.True(cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(v1), "/api/sounds/std-bell")], default)
-                .GetAwaiter().GetResult().Success);
+            var firstSwap = await cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(v1), "/api/sounds/std-bell")], default);
+            Assert.True(firstSwap.Success);
 
             // Revision 2: new bell bytes + unchanged chime already cached with matching hash.
             var chime = Encoding.UTF8.GetBytes("CHIME");
             File.WriteAllBytes(System.IO.Path.Combine(cache.CurrentDir, "std-chime.wav"), chime);
             handler.Files["/api/sounds/std-bell"] = v2;
-            var res = cache.FetchAndSwapAsync(http, [
+            var res = await cache.FetchAndSwapAsync(http, [
                 new SoundRef("std-bell", Sha256(v2), "/api/sounds/std-bell"),
                 new SoundRef("std-chime", Sha256(chime), "/api/sounds/std-chime"),
-            ], default).GetAwaiter().GetResult();
+            ], default);
 
             Assert.True(res.Success);
             Assert.Equal(1, res.Downloaded);
@@ -91,7 +93,7 @@ public class SoundCacheTests
     }
 
     [Fact]
-    public void Missing_url_fails_fetch_and_keeps_previous_cache()
+    public async Task Missing_url_fails_fetch_and_keeps_previous_cache()
     {
         var dir = TestDirs.Create("cache-missing");
         try
@@ -100,11 +102,11 @@ public class SoundCacheTests
             var v = Encoding.UTF8.GetBytes("V");
             var handler = new StubSoundHandler { Files = { ["/api/sounds/std-bell"] = v } };
             var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:1/") };
-            cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(v), "/api/sounds/std-bell")], default)
-                .GetAwaiter().GetResult();
+            await cache.FetchAndSwapAsync(http, [new SoundRef("std-bell", Sha256(v), "/api/sounds/std-bell")], default)
+                ;
 
-            var res = cache.FetchAndSwapAsync(http, [new SoundRef("std-new", Sha256(v), "/api/sounds/std-new")], default)
-                .GetAwaiter().GetResult();
+            var res = await cache.FetchAndSwapAsync(http, [new SoundRef("std-new", Sha256(v), "/api/sounds/std-new")], default)
+                ;
             Assert.False(res.Success);
             Assert.StartsWith("fetch_failed", res.Failure);
             Assert.NotNull(cache.GetSoundPath("std-bell")); // old cache untouched

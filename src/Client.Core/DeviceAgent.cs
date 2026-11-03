@@ -40,6 +40,7 @@ public sealed partial class DeviceAgent
     private long _staleCacheLoggedAtRevision = -1;
 
     public event Action<ScheduleManifestPayload>? ManifestAccepted;
+    public event Action? StateChanged;
 
     public DeviceAgent(ClientConfig cfg, TimeProvider time, HttpClient http, ILogger log,
         IBellPlayer bellPlayer, IAnnouncementPipeline pipeline, IRendererProvider renderer,
@@ -79,9 +80,23 @@ public sealed partial class DeviceAgent
 
     public void NotifyStateChanged()
     {
+        StateChanged?.Invoke();
         if (_statusDirty) return;
         _statusDirty = true;
         _statusWake.Writer.TryWrite(0);
+    }
+
+    /// Next not-yet-claimed occurrence matching this device after nowMs (for tray display).
+    public Occurrence? PeekNextOccurrence()
+    {
+        var m = Manifests.Current;
+        if (m is null) return null;
+        var now = Clock.NowMs();
+        return m.Occurrences
+            .Where(o => o.StartsAt > now && !Ledger.Has(o.OccurrenceId) &&
+                        o.Target.Matches(_cfg.DeviceId, _cfg.DeviceGroups))
+            .OrderBy(o => o.StartsAt)
+            .FirstOrDefault();
     }
 
     /// Single device-session loop: bell loop runs regardless of connectivity; the
