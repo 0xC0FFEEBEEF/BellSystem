@@ -16,8 +16,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/schoolbell/caddy
-Environment=HOME=/var/lib/schoolbell/caddy XDG_DATA_HOME=/var/lib/schoolbell/caddy XDG_CONFIG_HOME=/var/lib/schoolbell/caddy
+ReadWritePaths=/var/lib/schoolbell-proxy
+Environment=HOME=/var/lib/schoolbell-proxy XDG_DATA_HOME=/var/lib/schoolbell-proxy XDG_CONFIG_HOME=/var/lib/schoolbell-proxy
 
 [Install]
 WantedBy=multi-user.target

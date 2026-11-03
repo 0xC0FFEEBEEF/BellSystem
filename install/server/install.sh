@@ -20,6 +20,7 @@ set -euo pipefail
 PREFIX=/opt/schoolbell
 ETC=/etc/schoolbell
 VAR=/var/lib/schoolbell
+PROXYVAR=/var/lib/schoolbell-proxy   # Caddy state (internal CA, certificates), owned by schoolbell-proxy
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION="$(cat "$HERE/VERSION" 2>/dev/null || echo unknown)"
 HOSTS=(); TZ_ARG=""; TLS_CERT=""; TLS_KEY=""; SERVER_NAME=""; FIREWALL=1; MODE=install
@@ -44,7 +45,9 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "run as root: sudo bash install.sh ..."
 command -v systemctl >/dev/null || die "systemd is required (Ubuntu 24.04 LTS)"
 [ "$(uname -m)" = x86_64 ] || die "x86-64 only (this bundle is linux-x64)"
-if [ -r /etc/os-release ]; then . /etc/os-release; [ "${ID:-}" = ubuntu ] && [ "${VERSION_ID:-}" = 24.04 ] || echo "WARNING: tested on Ubuntu 24.04; this is ${PRETTY_NAME:-unknown}"; fi
+# read os-release in a subshell: it defines VERSION, which must not replace ours
+OS=$( [ -r /etc/os-release ] && . /etc/os-release && echo "${ID:-}|${VERSION_ID:-}|${PRETTY_NAME:-unknown}" || echo "||unknown")
+[ "${OS%%|*}" = ubuntu ] && [ "$(echo "$OS" | cut -d'|' -f2)" = 24.04 ] || echo "WARNING: tested on Ubuntu 24.04; this is ${OS##*|}"
 
 health() { # health URL expected-version seconds
   local url=$1 want=$2 n=$3 got
@@ -90,11 +93,12 @@ say "SchoolBell $VERSION ($([ -n "$FROM" ] && echo "upgrade from $FROM" || echo 
 
 say "service accounts and directories"
 id -u schoolbell >/dev/null 2>&1 || useradd --system --home-dir "$VAR" --no-create-home --shell /usr/sbin/nologin schoolbell
-id -u schoolbell-proxy >/dev/null 2>&1 || useradd --system --home-dir "$VAR/caddy" --no-create-home --shell /usr/sbin/nologin schoolbell-proxy
+id -u schoolbell-proxy >/dev/null 2>&1 || useradd --system --home-dir "$PROXYVAR" --no-create-home --shell /usr/sbin/nologin schoolbell-proxy
 install -d -m 0755 "$PREFIX" "$PREFIX/releases" "$PREFIX/bin"
-install -d -m 0750 -o root -g schoolbell "$ETC"
+install -d -m 0755 -o root -g root "$ETC"   # files inside carry their own modes (env 0640, tls key 0640)
 install -d -m 0750 -o schoolbell -g schoolbell "$VAR" "$VAR/backups" "$VAR/update"
-install -d -m 0700 -o schoolbell-proxy -g schoolbell-proxy "$VAR/caddy"
+install -d -m 0700 -o schoolbell-proxy -g schoolbell-proxy "$PROXYVAR"
+chown -R schoolbell-proxy:schoolbell-proxy "$PROXYVAR"
 
 # release signing public key: pinned at first install from the bundle the administrator verified
 if [ ! -f "$ETC/release-signing.pub.pem" ]; then install -m 0644 "$HERE/release-signing.pub.pem" "$ETC/release-signing.pub.pem"
@@ -154,8 +158,11 @@ if [ -n "$TLS_CERT" ]; then
 fi
 TLS_LINE="tls internal"; [ -f "$ETC/tls/server.crt" ] && TLS_LINE="tls $ETC/tls/server.crt $ETC/tls/server.key"
 SITES=$(printf 'https://%s, ' "${NAMES[@]}"); SITES=${SITES%, }
-sed -e "s|@SITES@|$SITES|" -e "s|@TLS@|$TLS_LINE|" -e "s|@VAR@|$VAR|g" "$HERE/caddy/Caddyfile.tmpl" > "$ETC/Caddyfile.new"
-"$PREFIX/bin/caddy" validate --config "$ETC/Caddyfile.new" --adapter caddyfile >/dev/null 2>&1 || die "generated Caddyfile is invalid ($ETC/Caddyfile.new)"
+sed -e "s|@SITES@|$SITES|" -e "s|@TLS@|$TLS_LINE|" -e "s|@PROXYVAR@|$PROXYVAR|g" "$HERE/caddy/Caddyfile.tmpl" > "$ETC/Caddyfile.new"
+chmod 0644 "$ETC/Caddyfile.new"
+# validate as the proxy account: validation provisions the internal CA, which must be owned by it
+runuser -u schoolbell-proxy -- env HOME="$PROXYVAR" XDG_DATA_HOME="$PROXYVAR" XDG_CONFIG_HOME="$PROXYVAR" \
+  "$PREFIX/bin/caddy" validate --config "$ETC/Caddyfile.new" --adapter caddyfile >/dev/null 2>&1 || die "generated Caddyfile is invalid ($ETC/Caddyfile.new)"
 mv -f "$ETC/Caddyfile.new" "$ETC/Caddyfile"; chmod 0644 "$ETC/Caddyfile"
 
 say "systemd units"
@@ -190,7 +197,8 @@ if [ "$FIREWALL" = 1 ] && command -v ufw >/dev/null && ufw status 2>/dev/null | 
 fi
 
 # CA certificate for Windows clients (Caddy internal CA unless the school certificate is used)
-CA_SRC="$VAR/caddy/pki/authorities/local/root.crt"
+systemctl is-active --quiet schoolbell-caddy || { sleep 3; systemctl is-active --quiet schoolbell-caddy || { echo "ERROR: Caddy did not start:" >&2; journalctl -u schoolbell-caddy -n 15 --no-pager >&2; }; }
+CA_SRC="$PROXYVAR/pki/authorities/local/root.crt"
 for _ in $(seq 1 30); do [ -f "$CA_SRC" ] || [ -f "$ETC/tls/server.crt" ] && break; sleep 1; done
 [ -f "$CA_SRC" ] && install -m 0644 "$CA_SRC" "$ETC/school-ca.cer"
 HTTPS_OK=no
@@ -200,14 +208,14 @@ else
   curl -sf --max-time 5 --resolve "${NAMES[0]}:443:127.0.0.1" "https://${NAMES[0]}/api/health" >/dev/null && HTTPS_OK=yes
 fi
 
-CODE=$(journalctl -u schoolbell --no-pager -o cat 2>/dev/null | grep -o 'SETUP CODE: [0-9a-f]*' | tail -1 || true)
+CODE=$(journalctl -u schoolbell --no-pager -o cat 2>/dev/null | grep -o 'SETUP CODE: [0-9a-f]*' | tail -1 | awk '{print $3}' || true)
 cat <<EOF
 
 == SchoolBell $GOT is running.
    Office:   $(printf 'https://%s/  ' "${NAMES[@]}")   (HTTPS check from this server: $HTTPS_OK)
    Services: systemctl status schoolbell schoolbell-caddy   ·  logs: journalctl -u schoolbell -f
 $( [ -f "$ETC/school-ca.cer" ] && echo "   Windows clients must trust: $ETC/school-ca.cer   (give it to SchoolBellSetup.exe --ca-file)" )
-$( [ -n "$CODE" ] && echo "   First sign-in: open the office address, choose 'First-time setup' and enter $CODE" )
+$( [ -n "$CODE" ] && echo "   First sign-in: open the office address, choose 'First-time setup' and enter setup code $CODE" )
    Then in /admin: check the school timezone, create an enrollment file, build and publish schedules.
    Windows: SchoolBellSetup.exe --silent --server ${NAMES[0]} --enrollment-file schoolbell-enroll.json --ca-file school-ca.cer
 EOF

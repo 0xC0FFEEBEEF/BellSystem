@@ -15,7 +15,7 @@ if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "443/tcp"; then
   echo "note: the ufw rule for 443/tcp was left in place (remove with: ufw delete allow 443/tcp)"
 fi
 if [ "$PURGE" = 1 ]; then
-  rm -rf /var/lib/schoolbell /etc/schoolbell
+  rm -rf /var/lib/schoolbell /var/lib/schoolbell-proxy /etc/schoolbell
   userdel schoolbell 2>/dev/null || true; userdel schoolbell-proxy 2>/dev/null || true
   echo "SchoolBell removed, including all data and configuration."
 else

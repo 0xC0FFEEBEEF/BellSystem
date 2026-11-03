@@ -5,3 +5,29 @@
   staged installer: True 38203730
   clean: service=False files=False caddy CA trusted=False
 --- 2. silent install: SchoolBellSetup.exe --silent --server 192.168.122.1:8443 --enrollment-file C:\Deploy\schoolbell-enroll.json --ca-file C:\Deploy\school-ca.cer
+  exit code 0 after 308 s
+--- 3. verify the installation
+#< CLIXML
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><S S="Error">Get-CimInstance : Invalid query _x000D__x000A_</S><S S="Error">At line:6 char:6_x000D__x000A_</S><S S="Error">+ $s = Get-CimInstance Win32_Service -Filter "Name=SchoolBell"_x000D__x000A_</S><S S="Error">+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~_x000D__x000A_</S><S S="Error">    + CategoryInfo          : InvalidArgument: (:) [Get-CimInstance], CimException_x000D__x000A_</S><S S="Error">    + FullyQualifiedErrorId : HRESULT 0x80041017,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand_x000D__x000A_</S><S S="Error"> _x000D__x000A_</S></Objs>  Apps & Features: SchoolBell 0.9.0 by SchoolBell pilot | icon C:\Program Files\SchoolBell\SchoolBellCompanion.exe | size 128182 KB
+  uninstall string: "C:\Program Files\SchoolBell\unins000.exe"
+  service: , , runs as  -> 
+  recovery: FAILURE_ACTIONS              : RESTART -- Delay = 5000 milliseconds.;                                        RESTART -- Delay = 10000 milliseconds.;                                        RESTART -- Delay = 30000 milliseconds.
+  logon task: Ready (principal group Users)
+  companion processes: 
+  ProgramData ACL: C:\ProgramData\SchoolBell BUILTIN\Administrators:(OI)(CI)(F) |                           NT AUTHORITY\SYSTEM:(OI)(CI)(F) |
+  config.json ACL: C:\ProgramData\SchoolBell\config.json BUILTIN\Administrators:(I)(F) |                                       NT AUTHORITY\SYSTEM:(I)(F) |
+  CA thumbprint recorded for uninstall: 64D9FBF556E5B246F8C80F82F8C9D5F1250D32E6
+  installer copy for update rollback: True
+  server sees: No signed-in user (WIN11-VM) no_renderer client 0.9.0
+  format: 44100 Hz, 2 ch, 16-bit; analysed 5.80s from byte 16564224; loudest window -120.0 dBFS
+    no audible segments
+--- 4. repair: run the same installer again (identity must be kept)
+  repair exit code 0
+  service: Running
+  device id before d96b0af7-4ea0-4913-b335-70186dc602e5 after d96b0af7-4ea0-4913-b335-70186dc602e5 (kept)
+--- 5. uninstall via the Apps & Features uninstall command (silent)
+  uninstall exit code 0
+  after: Apps entry=False service=False task=False
+  after: program files=False programdata=False user logs=False companion running=False
+  after: school CA still trusted=False registry key=False event source=False
+--- 6. reinstall for further lab tests
