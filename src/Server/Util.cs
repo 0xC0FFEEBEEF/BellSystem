@@ -57,7 +57,7 @@ public static class Util
         catch (FormatException) { return false; }
     }
 
-    /// Walk up from a directory looking for a repo-relative folder (used for legacy/sounds).
+    /// Walk up from a directory looking for a repo-relative folder (used for assets/sounds).
     public static string? FindUpwards(string? startDir, params string[] relSegments)
     {
         var dir = startDir is null ? null : new DirectoryInfo(startDir);

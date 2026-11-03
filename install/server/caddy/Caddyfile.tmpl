@@ -11,7 +11,7 @@
 	encode zstd gzip
 	# office UI, API and both WebSocket channels share this one HTTPS origin
 	reverse_proxy 127.0.0.1:5001 {
-		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Host {hostport}
 		flush_interval -1
 	}
 }

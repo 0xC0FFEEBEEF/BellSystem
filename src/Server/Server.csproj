@@ -12,6 +12,11 @@
     <ProjectReference Include="..\Contracts\Contracts.csproj" />
   </ItemGroup>
 
+  <!-- built-in bell sounds (std-bell is the school's bell tone) ship with the server -->
+  <ItemGroup>
+    <None Include="..\..\assets\sounds\*.wav" LinkBase="sounds" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Server.Tests" />
   </ItemGroup>

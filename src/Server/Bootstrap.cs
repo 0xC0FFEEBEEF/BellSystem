@@ -32,9 +32,13 @@ public sealed class Bootstrap
             else
                 _db.SetSetting("school_tz", _cfg.SchoolTz);
         }
-        var soundsSrc = Util.FindUpwards(contentRoot, "legacy", "sounds")
-            ?? Util.FindUpwards(AppContext.BaseDirectory, "legacy", "sounds")
-            ?? Util.FindUpwards(Directory.GetCurrentDirectory(), "legacy", "sounds");
+        // built-in sounds ship next to the binary (sounds/); a source checkout uses assets/sounds
+        var bundled = Path.Combine(AppContext.BaseDirectory, "sounds");
+        var soundsSrc = (Directory.Exists(bundled) ? bundled : null)
+            ?? Util.FindUpwards(contentRoot, "assets", "sounds")
+            ?? Util.FindUpwards(AppContext.BaseDirectory, "assets", "sounds")
+            ?? Util.FindUpwards(Directory.GetCurrentDirectory(), "assets", "sounds");
+        if (soundsSrc is null) _log.LogError("built-in bell sounds not found (expected {Dir}); bells cannot be scheduled until sounds are uploaded", bundled);
         _sounds.SeedBuiltIn(soundsSrc);
         _auth.EnsureBootstrap();                                // prints SETUP CODE once if no users
     }

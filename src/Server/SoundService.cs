@@ -4,7 +4,7 @@ namespace SchoolBell.Server;
 
 public sealed record SoundAsset(string Id, string Sha256, long Bytes, string Url);
 
-/// Built-in sounds: seeded once from legacy/sounds into the assets dir, sha256-hashed and stored.
+/// Built-in sounds: seeded once from sounds/ (next to the binary) or assets/sounds into the data dir, sha256-hashed and stored.
 /// Sound bytes are served by asset id (documented tradeoff: manifest-referenced public bytes;
 /// real delivery authorization rides on the signed manifest, not on the file endpoint).
 public sealed class SoundService

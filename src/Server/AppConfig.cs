@@ -20,7 +20,8 @@ public sealed class ServerConfig
     public string UpdateRepo { get; set; } = "0xC0FFEEBEEF/BellSystem";
     public string UpdateApiBase { get; set; } = "https://api.github.com";   // GitHub REST API (overridable for tests/mirrors)
     public string WhisperUrl { get; set; } = "http://127.0.0.1:8178";
-    public string WebRoot { get; set; } = "";            // built office UI (wwwroot); "" = next to the binary
+    public string WebRoot { get; set; } = "";
+    public int MinPasswordLength { get; set; } = 12;            // built office UI (wwwroot); "" = next to the binary
 
     public string DbPath => Path.Combine(DataDir, "schoolbell.db");
     public string SoundsDir => Path.Combine(DataDir, "sounds");
@@ -45,6 +46,7 @@ public sealed class ServerConfig
             UpdateApiBase = (s["UpdateApiBase"] ?? "https://api.github.com").TrimEnd('/'),
             WhisperUrl = s["WhisperUrl"] ?? "http://127.0.0.1:8178",
             WebRoot = s["WebRoot"] ?? "",
+            MinPasswordLength = ParseInt(s["MinPasswordLength"], 12),
         };
         var origins = s.GetSection("AllowedWsOrigins").Get<string[]>();
         if (origins is not null) c.AllowedWsOrigins = origins;

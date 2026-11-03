@@ -95,7 +95,7 @@ public sealed class TestEnv : IDisposable
         Auth = new AuthService(Database, Cfg, Time, LogFactory.CreateLogger<AuthService>());
         Enrollment = new EnrollmentService(Database, Time, LogFactory.CreateLogger<EnrollmentService>());
         Sounds = new SoundService(Database, Cfg, LogFactory.CreateLogger<SoundService>());
-        Sounds.SeedBuiltIn(Util.FindUpwards(AppContext.BaseDirectory, "legacy", "sounds"));
+        Sounds.SeedBuiltIn(Util.FindUpwards(AppContext.BaseDirectory, "assets", "sounds"));
         Outbox = new OutboxService(Database, Cfg, Time, Registry, LogFactory.CreateLogger<OutboxService>());
         Devices = new DevicesService(Database, Cfg, Time, Registry);
         Receipts = new ReceiptsService(Database, Time, LogFactory.CreateLogger<ReceiptsService>());
