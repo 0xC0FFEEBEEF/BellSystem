@@ -42,3 +42,41 @@ format: 44100 Hz, 2 ch, 16-bit; analysed 22.55s from byte 12476416; loudest wind
   2026-11-03T15:59:34.353Z INFO ServiceRenderer: volume restored on 'Speakers (High Definition Audio Device)' to master 40%
   2026-11-03T15:59:34.355Z INFO ServiceRenderer: announcement 7f47db28-296f-460f-aa8a-635a7d3f74c5 rendering finished (underruns 0, dropped 0 samples)
   companion restarted by its logon task
+
+=== Gate A matrix 2026-11-03T16:20:39Z — VM schoolbell-lab (Windows 11 Pro 25H2 build 26200, HDA audio, 3 GB) ===
+--- [signedout] user signed out; no companion; the service's session-0 renderer plays (master 35% muted)
+  sessions: No User exists for *
+  before: master_volume=0.35 master_muted=True
+  server device state: muted | No signed-in user (WIN11-VM) | connected True
+  during: master_volume=0.80 master_muted=False
+  after:  master_volume=0.35 master_muted=True
+format: 44100 Hz, 2 ch, 16-bit; analysed 5.27s from byte 25272320; loudest window -5.4 dBFS
+  audible at   143.547s for 2.900s, peak -5.4 dBFS
+  ring result: signed-out test [('No signed-in user (WIN11-VM)', 'completed', None)]
+--- [svccrash] (signed out) service killed 4 s into a recorded announcement it was rendering (master 30%)
+  before: master_volume=0.30 master_muted=False
+  during: master_volume=0.80 master_muted=False
+  service process killed
+  after SCM restart: master_volume=0.30 master_muted=False
+  service: Running
+  2026-11-03T16:21:22.003Z WARN ServiceRenderer: restored volume left overridden by an interrupted announcement on 'Speakers (High Definition Audio Device)' (captured by service)
+  2026-11-03T16:21:22.006Z INFO Client.Service.Worker: SchoolBell service 0.9.0 starting (computer WIN11-VM)
+format: 44100 Hz, 2 ch, 16-bit; analysed 6.04s from byte 26202112; loudest window -10.4 dBFS
+  audible at   148.938s for 0.980s, peak -14.3 dBFS
+  audible at   150.818s for 2.740s, peak -11.6 dBFS
+  audible at   154.438s for 0.120s, peak -10.4 dBFS
+--- [output] admin configures a speaker name that is not present on this PC
+  server device state: no_renderer | No signed-in user (WIN11-VM) | connected True
+format: 44100 Hz, 2 ch, 16-bit; analysed 0.00s from byte 27267072; loudest window -120.0 dBFS
+  no audible segments
+  ring result: missing-output test [('No signed-in user (WIN11-VM)', 'failed', 'output_missing')]
+  server device state: playback_failed | No signed-in user (WIN11-VM) | connected True
+--- [noboot] reboot with automatic sign-in disabled: nobody signed in since boot
+  rebooting
+  sessions:  USERNAME              SESSIONNAME        ID  STATE   IDLE TIME  LOGON TIME  user                  console             1  Active      none   11/3/2026 4:22 AM
+  service: Running
+  server device state: offline | No signed-in user (WIN11-VM) | connected False
+format: 44100 Hz, 2 ch, 16-bit; analysed 0.00s from byte 27860992; loudest window -120.0 dBFS
+  no audible segments
+  ring result: no-user boot test [('No signed-in user (WIN11-VM)', 'offered', None)]
+  autologon re-enabled (takes effect next boot)

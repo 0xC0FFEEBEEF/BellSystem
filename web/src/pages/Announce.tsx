@@ -44,7 +44,7 @@ export function Announce() {
   const phaseText: Record<string, string> = {
     idle: latch ? "Click to start talking" : "Hold to talk (or hold Space)",
     mic: "Opening microphone…", leasing: "Requesting the talk lease…", preparing: "Preparing endpoints… wait",
-    ready: latch ? "LIVE — click to finish" : "LIVE — speak now, release to finish", ending: "Finishing…",
+    ready: latch ? "Speak now — click to finish" : "Speak now — release to finish", ending: "Finishing…",
     ended: latch ? "Click to talk again" : "Hold to talk again", error: "Try again",
   };
 
@@ -66,7 +66,7 @@ export function Announce() {
           <label className="check"><input type="checkbox" checked={latch} onChange={(e) => setLatch(e.target.checked)} disabled={active} /> Latch (click on / click off)</label>
         </div>
         <button
-          className={`talk ${st.phase} ${aud.mode === "all" ? "schoolwide" : ""}`}
+          className={`talk ${st.phase}`}
           disabled={!audienceValid(aud) || st.phase === "ending"}
           aria-pressed={active}
           onPointerDown={latch ? undefined : (e) => { e.currentTarget.setPointerCapture(e.pointerId); begin(); }}
@@ -75,7 +75,7 @@ export function Announce() {
           onClick={latch ? () => (active ? finish() : begin()) : undefined}
         >
           <span className="talk-main">{phaseText[st.phase]}</span>
-          <span className="talk-sub">{aud.mode === "all" ? "to EVERYONE" : aud.mode === "groups" ? `to ${aud.groups.length} group(s)` : `to ${aud.devices.length} endpoint(s)`}</span>
+          <span className="talk-sub">{aud.mode === "all" ? "to everyone" : aud.mode === "groups" ? `to ${aud.groups.length} group(s)` : `to ${aud.devices.length} computer(s)`}</span>
         </button>
         <Meter level={st.level} />
         <p className={`status-line ${st.phase}`} role="status">{st.message || "Choose the audience, then hold the button. Your microphone opens only while you talk."}</p>
@@ -119,14 +119,14 @@ function RecordedAnnouncement({ aud, mic, chime }: { aud: Audience; mic: string;
       </div>
       {recording && <Meter level={level} />}
       {url && <div className="row"><audio controls src={url} /> <span className="dim">{seconds} s</span></div>}
-      <button className={`primary ${aud.mode === "all" ? "danger" : ""}`} disabled={!pcm || busy || !audienceValid(aud) || recording}
+      <button className="primary" disabled={!pcm || busy || !audienceValid(aud) || recording}
         onClick={() => run(async () => {
           const form = new FormData();
           form.append("file", encodeWav(pcm!), "announcement.wav");
           form.append("target", JSON.stringify(audienceTarget(aud)));
           form.append("chime", chime ? "1" : "0");
           setResult(await upload("/api/announcements/recorded", form));
-        }, "Recorded announcement sent")}>Send recording {aud.mode === "all" ? "to EVERYONE" : ""}</button>
+        }, "Recorded announcement sent")}>Send recording</button>
       {result && <p>Sent to {result.device_count} endpoint(s) ({result.target_label}); results appear on the History page.</p>}
     </Card>
   );

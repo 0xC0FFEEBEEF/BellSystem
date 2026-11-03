@@ -1,95 +1,146 @@
-import { useState } from "react";
-import { fmtAgo, fmtTime, post, type Device } from "../api";
-import { AudienceSelector, audienceTarget, audienceValid, Badge, Card, Counts, Empty, useBusy, useData, useMe, type Audience } from "../ui";
+import { useEffect, useRef, useState } from "react";
+import { post, type Device, type Target } from "../api";
+import { LiveSession, type LiveStatus } from "../audio/live";
+import { Card, Empty, Meter, useBusy, useData, useMe } from "../ui";
 
-const ORDER = ["ready_to_play", "playing", "muted", "connected", "missing_speaker", "no_renderer", "playback_failed", "stale", "offline", "revoked"];
-
-export function Dashboard({ nav }: { nav: (p: string) => void }) {
+/** The main page: who, talk, ring, next bells. Everything else lives on the other pages. */
+export function Dashboard() {
   const me = useMe();
-  const devices = useData<{ total: number; items: Device[] }>("/api/devices?page_size=200", 5000);
-  const active = useData<any>("/api/announcements/active", 5000);
-  const rings = useData<any[]>("/api/bells/rings?limit=5", 5000);
-  const preview = useData<any>(`/api/schedules/preview?from=${new Date().toISOString().slice(0, 10)}&to=${new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)}`, 60000);
+  const canAct = me.role !== "viewer";
+  const canAll = me.role === "admin" || me.schoolwide_broadcast;
+  const groups = useData<{ id: number; name: string; member_count: number }[]>("/api/groups-list");
+  const devices = useData<{ total: number; items: Device[] }>("/api/devices?page_size=200", 10000);
+  const [who, setWho] = useState<string>(canAll ? "all" : "");
+  const [picked, setPicked] = useState<string[]>([]);
+
   const items = devices.data?.items ?? [];
-  const byState: Record<string, number> = {};
-  for (const d of items) byState[d.state] = (byState[d.state] ?? 0) + 1;
-  const problems = items.filter((d) => ["missing_speaker", "no_renderer", "playback_failed", "stale"].includes(d.state));
-  const nextBells = (preview.data?.occurrences ?? []).filter((o: any) => o.starts_at > Date.now())
-    .sort((a: any, b: any) => a.starts_at - b.starts_at).slice(0, 6);
-  const live = (active.data?.announcements ?? []).filter((a: any) => a.kind === "live");
+  const target: Target | null =
+    who === "all" ? { all: true }
+    : who.startsWith("g:") ? { groups: [Number(who.slice(2))] }
+    : who === "pick" && picked.length > 0 ? { devices: picked }
+    : null;
+  const inTarget = who === "all" ? items
+    : who.startsWith("g:") ? items.filter((d) => d.groups.includes(Number(who.slice(2))))
+    : items.filter((d) => picked.includes(d.device_id));
+  const online = inTarget.filter((d) => d.connected).length;
 
   return (
-    <div className="grid">
-      <Card title="Endpoints" className="span2" actions={<button onClick={() => nav("/endpoints")}>Open endpoints</button>}>
-        <div className="tiles">
-          <div className="tile"><b>{items.length}</b><span>enrolled</span></div>
-          <div className="tile ok"><b>{items.filter((d) => d.connected).length}</b><span>connected</span></div>
-          <div className="tile ok"><b>{(byState.ready_to_play ?? 0) + (byState.playing ?? 0)}</b><span>ready to play</span></div>
-          <div className="tile warn"><b>{byState.muted ?? 0}</b><span>muted (auto-unmute)</span></div>
-          <div className="tile bad"><b>{problems.length}</b><span>need attention</span></div>
-          <div className="tile muted"><b>{byState.offline ?? 0}</b><span>offline</span></div>
-        </div>
-        <p className="dim small">Connected does not prove sound: “Ready” means a renderer and speaker are present. A completed result comes only from the endpoint itself.</p>
-        <div className="state-row">{ORDER.filter((s) => byState[s]).map((s) => <span key={s}><Badge state={s} /> {byState[s]}</span>)}</div>
-      </Card>
-
-      {me.role !== "viewer" && <RingNow />}
-
-      <Card title="Live now">
-        {live.length === 0 ? <Empty>No live announcement.</Empty> : live.map((a: any) => (
-          <p key={a.announcement_id}><b>{a.created_by}</b> → {a.target_label} · {a.elapsed_s}s · <Counts counts={a.counts} /></p>
-        ))}
-        {me.role !== "viewer" && <button className="primary" onClick={() => nav("/announce")}>Make an announcement</button>}
-      </Card>
-
-      <Card title="Next bells" actions={<button onClick={() => nav("/bells")}>Schedules</button>}>
-        {preview.error ? <p className="dim">{preview.error}</p> : nextBells.length === 0 ? <Empty>No bells in the next two days.</Empty> : (
-          <ul className="plain">{nextBells.map((o: any) => <li key={o.occurrence_id}><b>{o.local_hm}</b> {o.bell_name} <span className="dim">({o.local_date}, {o.schedule_template})</span></li>)}</ul>
-        )}
-      </Card>
-
-      <Card title="Recent manual bells">
-        {(rings.data ?? []).length === 0 ? <Empty>None yet.</Empty> : (
-          <ul className="plain">{rings.data!.map((r) => <li key={r.ring_id}>{fmtTime(r.created_at)} · <b>{r.bell_name}</b> by {r.requested_by} → {r.target_label} <Counts counts={r.counts} /></li>)}</ul>
-        )}
-      </Card>
-
-      {problems.length > 0 && (
-        <Card title="Endpoints needing attention" className="span2">
-          <table><tbody>{problems.slice(0, 12).map((d) => (
-            <tr key={d.device_id}><td>{d.label}</td><td><Badge state={d.state} /></td><td className="dim">last contact {fmtAgo(d.last_seen)}</td></tr>
-          ))}</tbody></table>
+    <div className="home">
+      {canAct && (
+        <Card className="home-main">
+          <label className="field">
+            <span>Who</span>
+            <select value={who} onChange={(e) => setWho(e.target.value)} aria-label="Who hears it">
+              {canAll && <option value="all">Everyone</option>}
+              {!canAll && <option value="">Choose a group…</option>}
+              {(groups.data ?? []).map((g) => <option key={g.id} value={`g:${g.id}`}>{g.name}</option>)}
+              <option value="pick">Choose computers…</option>
+            </select>
+          </label>
+          {who === "pick" && (
+            <div className="checklist scroll">
+              {items.map((d) => (
+                <label key={d.device_id}><input type="checkbox" checked={picked.includes(d.device_id)}
+                  onChange={(e) => setPicked(e.target.checked ? [...picked, d.device_id] : picked.filter((x) => x !== d.device_id))} /> {d.label}</label>
+              ))}
+            </div>
+          )}
+          <p className="dim small">{target ? `${online} of ${inTarget.length} computer(s) connected` : "Pick who should hear it."}</p>
+          <TalkButton target={target} />
+          <RingButton target={target} />
         </Card>
       )}
+      <NextBells />
     </div>
   );
 }
 
+function TalkButton({ target }: { target: Target | null }) {
+  const session = useRef(new LiveSession());
+  const [st, setSt] = useState<LiveStatus>(session.current.status);
+  useEffect(() => {
+    session.current.onChange = (s) => setSt({ ...s });
+    const end = () => session.current.stop();
+    window.addEventListener("beforeunload", end);
+    return () => { window.removeEventListener("beforeunload", end); session.current.stop(); };
+  }, []);
+  const active = ["mic", "leasing", "preparing", "ready", "ending"].includes(st.phase);
+  const begin = () => { if (target && !active) session.current.start(target, true); };
+  const finish = () => session.current.stop();
+  const label = st.phase === "ready" ? "Speak now — release to finish"
+    : st.phase === "preparing" || st.phase === "leasing" || st.phase === "mic" ? "Getting ready…"
+    : st.phase === "ending" ? "Finishing…" : "Hold to talk";
+  return (
+    <div>
+      <button className={`talk ${st.phase}`} disabled={!target || st.phase === "ending"} aria-pressed={active}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); begin(); }}
+        onPointerUp={finish} onPointerCancel={finish}
+        onKeyDown={(e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); begin(); } }}
+        onKeyUp={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); finish(); } }}>
+        <span className="talk-main">🎙 {label}</span>
+      </button>
+      {active && <Meter level={st.level} />}
+      {(st.phase === "error" || st.phase === "ended") && <p className={`status-line ${st.phase}`} role="status">{st.message}</p>}
+    </div>
+  );
+}
+
+function RingButton({ target }: { target: Target | null }) {
+  const { busy, run } = useBusy();
+  return (
+    <button className="ring" disabled={!target || busy}
+      onClick={() => run(() => post("/api/bells/ring", { target }), "Bell rung")}>🔔 Ring bell</button>
+  );
+}
+
+function NextBells() {
+  const from = new Date().toISOString().slice(0, 10);
+  const to = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const preview = useData<any>(`/api/schedules/preview?from=${from}&to=${to}`, 60000);
+  const next = (preview.data?.occurrences ?? []).filter((o: any) => o.starts_at > Date.now())
+    .sort((a: any, b: any) => a.starts_at - b.starts_at).slice(0, 8);
+  const today = new Date().toDateString();
+  return (
+    <Card title="Next bells" className="home-bells">
+      {preview.error ? <p className="dim">{preview.error}</p> : next.length === 0 ? <Empty>No bells scheduled.</Empty> : (
+        <ul className="plain bells">{next.map((o: any) => {
+          const d = new Date(o.starts_at);
+          return <li key={o.occurrence_id}><b>{d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b> {o.bell_name}
+            {d.toDateString() !== today && <span className="dim"> · {d.toLocaleDateString([], { weekday: "short" })}</span>}</li>;
+        })}</ul>
+      )}
+    </Card>
+  );
+}
+
+/** Ring panel reused on the Bells and Endpoints pages. */
 export function RingNow({ fixedDevice }: { fixedDevice?: string }) {
   const me = useMe();
   const sounds = useData<any[]>("/api/sounds");
-  const [aud, setAud] = useState<Audience>({ mode: fixedDevice ? "devices" : me.role === "admin" || me.schoolwide_broadcast ? "all" : "groups", groups: [], devices: fixedDevice ? [fixedDevice] : [] });
+  const groups = useData<{ id: number; name: string }[]>("/api/groups-list");
+  const canAll = me.role === "admin" || me.schoolwide_broadcast;
+  const [who, setWho] = useState(fixedDevice ? "device" : canAll ? "all" : "");
   const [sound, setSound] = useState("std-bell");
   const [name, setName] = useState("");
   const { busy, run } = useBusy();
-  const [last, setLast] = useState<any>();
-  const ring = () => run(async () => {
-    const r = await post("/api/bells/ring", { target: audienceTarget(aud), sound_id: sound, bell_name: name || undefined });
-    setLast(r);
-  }, "Bell sent");
+  const target: Target | null = fixedDevice ? { devices: [fixedDevice] } : who === "all" ? { all: true } : who.startsWith("g:") ? { groups: [Number(who.slice(2))] } : null;
   return (
-    <Card title={fixedDevice ? "Test this endpoint" : "Ring a bell now"}>
-      {!fixedDevice && <AudienceSelector value={aud} onChange={setAud} allowAll={me.role === "admin" || me.schoolwide_broadcast} />}
+    <Card title={fixedDevice ? "Test this computer" : "Ring a bell"}>
       <div className="row">
+        {!fixedDevice && <label className="field"><span>Who</span>
+          <select value={who} onChange={(e) => setWho(e.target.value)}>
+            {canAll && <option value="all">Everyone</option>}
+            {!canAll && <option value="">Choose a group…</option>}
+            {(groups.data ?? []).map((g) => <option key={g.id} value={`g:${g.id}`}>{g.name}</option>)}
+          </select></label>}
         <label className="field"><span>Sound</span>
           <select value={sound} onChange={(e) => setSound(e.target.value)}>
             {(sounds.data ?? [{ id: "std-bell", name: "std-bell" }]).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select></label>
-        {!fixedDevice && <label className="field"><span>Label (optional)</span><input value={name} placeholder="Bell (rung by the office)" onChange={(e) => setName(e.target.value)} /></label>}
+        {!fixedDevice && <label className="field"><span>Label (optional)</span><input value={name} placeholder="Bell" onChange={(e) => setName(e.target.value)} /></label>}
       </div>
-      <button className={`primary big ${aud.mode === "all" ? "danger" : ""}`} disabled={busy || !audienceValid(aud)} onClick={ring}>
-        🔔 {fixedDevice ? "Play test bell on this endpoint" : aud.mode === "all" ? "Ring bell everywhere" : "Ring bell"}</button>
-      {last && <p className="dim small">Sent to {last.device_count} endpoint(s). It never rings later than {last.expires_in_s}s after this press; results appear below and on the History page.</p>}
+      <button className="ring" disabled={busy || !target} onClick={() => run(() => post("/api/bells/ring", { target, sound_id: sound, bell_name: name || undefined }), "Bell rung")}>
+        🔔 {fixedDevice ? "Play a test bell here" : "Ring bell"}</button>
     </Card>
   );
 }

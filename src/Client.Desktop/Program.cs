@@ -5,6 +5,13 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // --warmup: load the runtime and WinForms once (installer pre-scan step), no UI
+        if (args.Contains("--warmup"))
+        {
+            _ = typeof(Form).Assembly;
+            _ = typeof(SchoolBell.Client.Audio.AudioEngine).Assembly;
+            return 0;
+        }
         // One companion per Windows session (the logon task and a manual start must not double up).
         using var single = new Mutex(true, @"Local\SchoolBellCompanion", out bool first);
         if (!first) return 0;

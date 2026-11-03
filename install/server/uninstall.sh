@@ -1,26 +1,23 @@
 #!/usr/bin/env bash
-# uninstall.sh — remove SchoolBell service + binaries. State/config preserved by
-# default (school data survives an uninstall/reinstall cycle); --purge-data to remove
-# /var/lib/schoolbell and /etc/schoolbell. Run as root.
+# Remove the SchoolBell server. Data and configuration are KEPT unless --purge-data is given
+# (an uninstall/reinstall cycle keeps devices, schedules and history).
+#   sudo bash /opt/schoolbell/current/uninstall.sh [--purge-data]
 set -u
-PURGE=0
-[ "${1:-}" = "--purge-data" ] && PURGE=1
-PREFIX=${SB_PREFIX:-/opt/schoolbell}
-ETC=${SB_ETC:-/etc/schoolbell}
-VAR=${SB_VAR:-/var/lib/schoolbell}
-LOG=${SB_LOG:-/var/log/schoolbell}
-if [ -f "$PREFIX/server.pid" ]; then kill "$(cat "$PREFIX/server.pid")" 2>/dev/null || true; fi   # sandbox-mode instance
-if [ "$(id -u)" != 0 ] && [ -z "$SB_PREFIX" ]; then echo "run as root" >&2; exit 1; fi
-
-systemctl stop schoolbell schoolbell-caddy 2>/dev/null || true
-systemctl disable schoolbell schoolbell-caddy 2>/dev/null || true
-rm -f /etc/systemd/system/schoolbell.service /etc/systemd/system/schoolbell-caddy.service
-systemctl daemon-reload 2>/dev/null || true
-rm -rf "$PREFIX"
-
+PURGE=0; [ "${1:-}" = "--purge-data" ] && PURGE=1
+[ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
+systemctl disable --now schoolbell-update.path schoolbell schoolbell-caddy 2>/dev/null || true
+rm -f /etc/systemd/system/schoolbell.service /etc/systemd/system/schoolbell-caddy.service \
+      /etc/systemd/system/schoolbell-update.service /etc/systemd/system/schoolbell-update.path
+systemctl daemon-reload
+rm -f /usr/local/sbin/schoolbell-update
+rm -rf /opt/schoolbell
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "443/tcp"; then
+  echo "note: the ufw rule for 443/tcp was left in place (remove with: ufw delete allow 443/tcp)"
+fi
 if [ "$PURGE" = 1 ]; then
-  rm -rf "$VAR" "$ETC" "$LOG"
-  echo "removed service, binaries, and all data"
+  rm -rf /var/lib/schoolbell /etc/schoolbell
+  userdel schoolbell 2>/dev/null || true; userdel schoolbell-proxy 2>/dev/null || true
+  echo "SchoolBell removed, including all data and configuration."
 else
-  echo "removed service and binaries; /var/lib/schoolbell and /etc/schoolbell preserved"
+  echo "SchoolBell removed. Data kept in /var/lib/schoolbell and settings in /etc/schoolbell (use --purge-data to delete)."
 fi

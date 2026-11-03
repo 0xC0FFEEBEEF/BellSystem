@@ -10,7 +10,7 @@ import { History } from "./pages/History";
 import { Admin } from "./pages/Admin";
 
 const NAV: [string, string, (m: Me) => boolean][] = [
-  ["/", "Dashboard", () => true],
+  ["/", "Home", () => true],
   ["/announce", "Announce", (m) => m.role !== "viewer"],
   ["/bells", "Bells", () => true],
   ["/endpoints", "Endpoints", () => true],
@@ -32,7 +32,7 @@ export function App() {
   if (me === undefined) return <p className="loading">Loading…</p>;
   if (me === null) return <ToastHost><Login onDone={load} /></ToastHost>;
 
-  const page = path === "/" ? <Dashboard nav={nav} />
+  const page = path === "/" ? <Dashboard />
     : path.startsWith("/announce") ? <Announce />
     : path.startsWith("/bells") ? <Bells />
     : path.startsWith("/endpoints") ? <Endpoints />

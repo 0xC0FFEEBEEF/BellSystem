@@ -1,0 +1,8 @@
+[Unit]
+Description=SchoolBell self-update (verify signature, back up, install, health-check, roll back)
+ConditionPathExists=/var/lib/schoolbell/update/request.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/schoolbell-update
+TimeoutStartSec=30min

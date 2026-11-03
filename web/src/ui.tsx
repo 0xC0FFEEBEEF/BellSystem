@@ -126,13 +126,12 @@ export function AudienceSelector({ value, onChange, allowAll }: { value: Audienc
   else selected = items.filter((d) => value.devices.includes(d.device_id));
 
   return (
-    <div className={`audience ${value.mode === "all" ? "schoolwide" : ""}`}>
+    <div className="audience">
       <div className="seg" role="radiogroup" aria-label="Audience">
-        {allowAll && <button type="button" role="radio" aria-checked={value.mode === "all"} className={value.mode === "all" ? "on all" : ""} onClick={() => onChange({ ...value, mode: "all" })}>Everyone (all endpoints)</button>}
+        {allowAll && <button type="button" role="radio" aria-checked={value.mode === "all"} className={value.mode === "all" ? "on" : ""} onClick={() => onChange({ ...value, mode: "all" })}>Everyone</button>}
         <button type="button" role="radio" aria-checked={value.mode === "groups"} className={value.mode === "groups" ? "on" : ""} onClick={() => onChange({ ...value, mode: "groups" })}>Groups</button>
         <button type="button" role="radio" aria-checked={value.mode === "devices"} className={value.mode === "devices" ? "on" : ""} onClick={() => onChange({ ...value, mode: "devices" })}>Selected endpoints</button>
       </div>
-      {value.mode === "all" && <p className="schoolwide-note">⚠ SCHOOLWIDE — every enrolled computer will play this.</p>}
       {value.mode === "groups" && (
         <div className="checklist">
           {(groups.data ?? []).length === 0 && <span className="dim">No groups yet (create them in Admin → Groups).</span>}
@@ -155,7 +154,7 @@ export function AudienceSelector({ value, onChange, allowAll }: { value: Audienc
         </div>
       )}
       <p className="audience-count"><strong>{selected.length}</strong> endpoint(s) selected · <strong>{reachable(selected)}</strong> connected now
-        {selected.length - reachable(selected) > 0 && <> · <span className="warn-text">{selected.length - reachable(selected)} unavailable</span></>}</p>
+        {selected.length - reachable(selected) > 0 && <> · {selected.length - reachable(selected)} not connected</>}</p>
     </div>
   );
 }

@@ -208,6 +208,7 @@ public sealed class DevicesService
         // connected = the socket answered heartbeats within the last 30 s (KeepAliveTimeout)
         if (s is null) return "connected";
         if (s.LastPlayback is not null && s.LastPlayback.State == ReceiptState.Failed) return "playback_failed";
+        if (s.RendererReason == "missing_output" || (s.Renderer == "ready" && !s.OutputPresent)) return "missing_speaker";
         if (s.Renderer != "ready") return "no_renderer";
         if (!s.OutputPresent) return "missing_speaker";
         if (s.MasterMuted || s.SessionMuted) return "muted";

@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for SchoolBell update requests from /admin
+
+[Path]
+PathChanged=/var/lib/schoolbell/update/request.json
+Unit=schoolbell-update.service
+
+[Install]
+WantedBy=multi-user.target
