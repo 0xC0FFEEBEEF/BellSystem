@@ -30,7 +30,8 @@ public static class AnnouncementsEndpoints
         /// not implemented and keeps the 501 with a pointer to the real request shape.
         static bool HasJsonBody(HttpContext ctx) =>
             ctx.Request.ContentType is not null && ctx.Request.ContentType.Contains("json") &&
-            (ctx.Request.ContentLength ?? 0) > 0;
+            ((ctx.Request.ContentLength ?? 0) > 0 ||
+             (ctx.Request.ContentLength is null && ctx.Request.Headers.TransferEncoding.ToString().Contains("chunked")));
 
         // ---------------- talk lease ----------------
 

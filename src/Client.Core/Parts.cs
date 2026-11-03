@@ -1,7 +1,9 @@
 using SchoolBell.Contracts;
 namespace SchoolBell.Client.Core;
 
-public sealed record BellPlayOutcome(bool Played, string? Reason);
+/// StateOverride lets a renderer report an honest receipt other than completed/failed (e.g.
+/// "unknown" when the audio was handed to Windows but could not be confirmed audible).
+public sealed record BellPlayOutcome(bool Played, string? Reason, string? StateOverride = null);
 
 /// Playback instruction sink (bell): on Windows implemented over the named pipe to the
 /// companion; in tests a fake. The claim is already durable before this is called.

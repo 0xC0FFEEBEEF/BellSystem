@@ -33,6 +33,12 @@ public sealed class RendererRouter : IBellPlayer, IAnnouncementPipeline, IRender
 
     public string Owner => _pipe.Renderer is null ? "service" : "companion";
 
+    /// True until a user has signed in at least once since boot. Verified on Windows 11 25H2:
+    /// before the first sign-in, session-0 audio (ours and Windows' own SoundPlayer) is rendered
+    /// as digital silence; after a sign-in + sign-out it is audible. So pre-login playback is
+    /// attempted but never reported as completed (TEST-RESULTS.md, Gate A "no-user boot").
+    public Func<bool> NoUserSinceBoot { get; set; } = () => false;
+
     /// Startup and renderer loss: a capture left behind by a crashed renderer is restored on the
     /// same endpoint (machine-wide master volume) by the service.
     public void RecoverPendingVolume()
@@ -73,6 +79,8 @@ public sealed class RendererRouter : IBellPlayer, IAnnouncementPipeline, IRender
             return new RendererInfo(rep.Renderer, rep.RendererReason, rep.OutputDevice, rep.OutputPresent, false);
         if (r is not null) return new RendererInfo("no_renderer", "companion_starting", null, false, false);
         var s = _headless.GetStatus();
+        if (s.Renderer == "ready" && NoUserSinceBoot())
+            return new RendererInfo("no_renderer", "no_user_since_boot", s.OutputDevice, s.OutputPresent, false);
         return new RendererInfo(s.Renderer, s.Reason ?? "service_renderer", s.OutputDevice, s.OutputPresent, false);
     }
 
@@ -100,7 +108,10 @@ public sealed class RendererRouter : IBellPlayer, IAnnouncementPipeline, IRender
             // companion vanished before playing: the bell is still due, use the service renderer
             _log.LogWarning("companion did not play {Id} ({Reason}); falling back to the service renderer", play.OccurrenceId, outcome.Reason);
         }
-        return await _headless.PlayBellAsync(play, ct);
+        var played = await _headless.PlayBellAsync(play, ct);
+        if (played.Played && NoUserSinceBoot())
+            return new BellPlayOutcome(true, "pre_login_audio_unverified", ReceiptState.Unknown);
+        return played;
     }
 
     // ---------------------------------------------------------------- IAnnouncementPipeline

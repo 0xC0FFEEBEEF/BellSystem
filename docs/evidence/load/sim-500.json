@@ -1,0 +1,200 @@
+{
+  "devices": 500,
+  "slow_pct": 5,
+  "server": "https://127.0.0.1:8444",
+  "host": "Ghost",
+  "cores": 6,
+  "started_at": "2026-11-03T16:46:25.1535715\u002B00:00",
+  "connect": {
+    "connected": 500,
+    "all_connected_ms": 1728,
+    "auth_spread": {
+      "n": 500,
+      "p50": 1132,
+      "p95": 1696,
+      "p99": 1697,
+      "max": 1698
+    },
+    "server": {
+      "server": {
+        "samples": 6,
+        "cpu_avg_pct_one_core": 80.5,
+        "cpu_max_pct_one_core": 193.7,
+        "rss_max_mb": 207.7,
+        "threads_max": 47
+      },
+      "proxy_caddy": {
+        "samples": 6,
+        "cpu_avg_pct_one_core": 10.1,
+        "cpu_max_pct_one_core": 54.7,
+        "rss_max_mb": 91.6,
+        "threads_max": 14
+      }
+    }
+  },
+  "idle": {
+    "server": {
+      "server": {
+        "samples": 14,
+        "cpu_avg_pct_one_core": 3.9,
+        "cpu_max_pct_one_core": 17,
+        "rss_max_mb": 218.2,
+        "threads_max": 47
+      },
+      "proxy_caddy": {
+        "samples": 14,
+        "cpu_avg_pct_one_core": 0.1,
+        "cpu_max_pct_one_core": 1,
+        "rss_max_mb": 91.6,
+        "threads_max": 14
+      }
+    },
+    "connected": 500
+  },
+  "ring": {
+    "delivered": 500,
+    "arrival_after_request_ms": {
+      "n": 500,
+      "p50": 136,
+      "p95": 254,
+      "p99": 257,
+      "max": 267
+    },
+    "server_counts": {
+      "completed": 500
+    },
+    "server": {
+      "server": {
+        "samples": 3,
+        "cpu_avg_pct_one_core": 30.3,
+        "cpu_max_pct_one_core": 86.9,
+        "rss_max_mb": 249.3,
+        "threads_max": 46
+      },
+      "proxy_caddy": {
+        "samples": 3,
+        "cpu_avg_pct_one_core": 1,
+        "cpu_max_pct_one_core": 3,
+        "rss_max_mb": 91.7,
+        "threads_max": 14
+      }
+    }
+  },
+  "live": {
+    "ready_devices": 500,
+    "media_connects": 500,
+    "frames_sent_by_mic": 1000,
+    "frames_received_total": 481802,
+    "expected_frames_total": 500000,
+    "slow_consumer_overflow_closes": 0,
+    "media_egress_mbps_received": 127.1,
+    "frame_latency_capture_to_device_ms": {
+      "n": 471482,
+      "p50": 11,
+      "p95": 91,
+      "p99": 469,
+      "max": 887
+    },
+    "slow_consumer_frame_latency_ms": {
+      "n": 10408,
+      "p50": 9547,
+      "p95": 17248,
+      "p99": 17915,
+      "max": 18157
+    },
+    "slow_consumers": 25,
+    "server": {
+      "server": {
+        "samples": 31,
+        "cpu_avg_pct_one_core": 32.5,
+        "cpu_max_pct_one_core": 107.8,
+        "rss_max_mb": 294,
+        "threads_max": 47
+      },
+      "proxy_caddy": {
+        "samples": 31,
+        "cpu_avg_pct_one_core": 24.7,
+        "cpu_max_pct_one_core": 45.5,
+        "rss_max_mb": 151.6,
+        "threads_max": 19
+      }
+    },
+    "note": "latency = simulated-device receive time minus office capture timestamp (same host clock); transport only, excludes the renderer jitter buffer and audio output"
+  },
+  "reconnect_storm": {
+    "reconnected": 500,
+    "all_reconnected_ms": 2024,
+    "reconnect_after_drop_ms": {
+      "n": 500,
+      "p50": 1101,
+      "p95": 1571,
+      "p99": 1572,
+      "max": 1573
+    },
+    "server": {
+      "server": {
+        "samples": 2,
+        "cpu_avg_pct_one_core": 91.9,
+        "cpu_max_pct_one_core": 107,
+        "rss_max_mb": 308.1,
+        "threads_max": 38
+      },
+      "proxy_caddy": {
+        "samples": 2,
+        "cpu_avg_pct_one_core": 34.4,
+        "cpu_max_pct_one_core": 41.7,
+        "rss_max_mb": 169.3,
+        "threads_max": 19
+      }
+    }
+  },
+  "server_diagnostics_after": {
+    "server_version": "0.9.0",
+    "server_name": "SchoolBell",
+    "started_at": 1793724383719,
+    "now_utc": 1793724444289,
+    "uptime_seconds": 60,
+    "active_control_connections": 500,
+    "max_connections_configured": 1000,
+    "rejected_at_connection_limit": 0,
+    "outbox_total": 10200,
+    "outbox_max_per_device": 26,
+    "outbox_cap_configured": 500,
+    "outbox_dropped_total": 0,
+    "db_size_bytes": 12775424,
+    "db_wal_bytes": 4964440,
+    "stale_after_seconds_configured": 30,
+    "school_tz": "America/Chicago",
+    "active_mic_connections": 0,
+    "active_announcements": 0,
+    "media_queue_max_frames": 0,
+    "media_queue_mean_frames": 0,
+    "media_queue_count": 0,
+    "dropped_frames_total": 0,
+    "queue_overflow_drops_total": 0,
+    "frames_streamed_total": 0,
+    "oversize_frames_total": 0,
+    "transcription_enabled": false,
+    "transcript_jobs_queued": 5,
+    "transcript_jobs_failed": 0,
+    "live_settings": {
+      "talk_lease_max_s": 300,
+      "talk_lease_renew_interval_s": 60,
+      "live_offer_ttl_s": 5,
+      "preparation_window_s": 5,
+      "media_token_ttl_s": 10,
+      "media_queue_frames": 1500,
+      "live_stale_frame_ms": 3000,
+      "mic_frames_per_s": 60,
+      "mic_burst_s": 2,
+      "recorded_offer_ttl_s": 86400,
+      "audio_retention_days": 7,
+      "transcript_retention_days": 30,
+      "transcription_enabled": false,
+      "recorded_max_bytes": 26214400,
+      "recorded_max_duration_s": 300,
+      "transcription_max_attempts": 5
+    }
+  },
+  "finished_at": "2026-11-03T16:47:24.6661356\u002B00:00"
+}

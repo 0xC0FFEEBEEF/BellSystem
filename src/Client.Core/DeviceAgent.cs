@@ -343,7 +343,7 @@ public sealed partial class DeviceAgent
                     _log.LogWarning(e, "bell playback instruction failed for {OccurrenceId}", decision.OccurrenceId);
                     outcome = new(false, "renderer");
                 }
-                var state = outcome.Played ? ReceiptState.Completed : ReceiptState.Failed;
+                var state = outcome.StateOverride ?? (outcome.Played ? ReceiptState.Completed : ReceiptState.Failed);
                 Ledger.MarkTerminal(decision.OccurrenceId, state);
                 QueueReceipt(new ReceiptPayload(decision.OccurrenceId, state, Clock.NowMs(), outcome.Reason));
                 _lastPlayback = new PlaybackResult(decision.OccurrenceId, state, Clock.NowMs());

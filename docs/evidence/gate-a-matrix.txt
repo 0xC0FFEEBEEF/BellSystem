@@ -80,3 +80,22 @@ format: 44100 Hz, 2 ch, 16-bit; analysed 0.00s from byte 27860992; loudest windo
   no audible segments
   ring result: no-user boot test [('No signed-in user (WIN11-VM)', 'offered', None)]
   autologon re-enabled (takes effect next boot)
+--- [noboot] cold reboot; account now has a password so nobody is signed in since boot (rerun 2026-11-03T16:34:09Z)
+  sessions: No User exists for *
+  service: Running
+  vm utc: 2026-11-03T16:34:08.7314776Z
+  server device state: ready_to_play | No signed-in user (WIN11-VM) | connected True
+format: 44100 Hz, 2 ch, 16-bit; analysed 5.97s from byte 3670016; loudest window -80.2 dBFS
+  no audible segments
+  ring result: no-user boot test [('No signed-in user (WIN11-VM)', 'completed', None)]
+  restored blank password + auto sign-in
+--- [noboot-probe] 2026-11-03T16:35:09Z
+  sessions: No User exists for *
+  played via SoundPlayer (SYSTEM, session 0)
+  [no-user boot] Windows SoundPlayer from session 0:
+  format: 44100 Hz, 2 ch, 16-bit; analysed 20.34s from byte 6885376; loudest window -120.0 dBFS
+    no audible segments
+  [no-user boot] SchoolBell ring via the service renderer:
+  format: 44100 Hz, 2 ch, 16-bit; analysed 5.67s from byte 10473472; loudest window -120.0 dBFS
+    no audible segments
+  restored blank password + auto sign-in

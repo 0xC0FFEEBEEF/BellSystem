@@ -7,13 +7,14 @@ set -euo pipefail
 LAB=${1:?lab dir}; SRV=${2:-}
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 CADDY=${CADDY:-caddy}
-BIND=${BIND:-192.168.122.1}; PORT=${PORT:-8443}
+BIND=${BIND:-192.168.122.1}; PORT=${PORT:-8443}; APP_PORT=${APP_PORT:-5001}
 mkdir -p "$LAB/data" "$LAB/caddy" "$LAB/logs"
 export SchoolBell__DataDir="$LAB/data"
 export SchoolBell__AllowedWsOrigins__0="https://$BIND:$PORT"
 export SchoolBell__ReleaseKeyPath="$REPO/build/release-signing.pub.pem"
 export SchoolBell__WebRoot="${WEBROOT:-$REPO/web/dist}"
 export ASPNETCORE_ENVIRONMENT=Production
+export SchoolBell__Urls="http://127.0.0.1:$APP_PORT"
 if [ -n "$SRV" ]; then
   (cd "$SRV" && exec ./SchoolBell.Server) >"$LAB/logs/server.log" 2>&1 &
 else
@@ -30,15 +31,15 @@ cat > "$LAB/caddy/Caddyfile" <<CADDY
 https://$BIND:$PORT {
 	bind $BIND
 	tls internal
-	reverse_proxy 127.0.0.1:5001
+	reverse_proxy 127.0.0.1:$APP_PORT
 }
 CADDY
 "$CADDY" run --config "$LAB/caddy/Caddyfile" --adapter caddyfile >"$LAB/logs/caddy.log" 2>&1 &
 echo $! > "$LAB/caddy.pid"
 for i in $(seq 1 60); do
-  curl -sf http://127.0.0.1:5001/api/health >/dev/null 2>&1 && break; sleep 1
+  curl -sf http://127.0.0.1:$APP_PORT/api/health >/dev/null 2>&1 && break; sleep 1
 done
-curl -s http://127.0.0.1:5001/api/health; echo
+curl -s http://127.0.0.1:$APP_PORT/api/health; echo
 for i in $(seq 1 20); do
   [ -f "$LAB/caddy/storage/pki/authorities/local/root.crt" ] && break; sleep 0.5
 done

@@ -22,7 +22,7 @@ var sim = new Sim(opt);
 return await sim.RunAsync();
 
 sealed record Args(string Server, string? Ca, string Admin, string AdminPass, int Devices, int LiveS, int SlowPct,
-    int? ServerPid, string Out, string Creds, int Parallel)
+    int? ServerPid, string Out, string Creds, int Parallel, int? ProxyPid)
 {
     public static Args Parse(string[] a)
     {
@@ -34,7 +34,8 @@ sealed record Args(string Server, string? Ca, string Admin, string AdminPass, in
         return new Args(Get("--server").TrimEnd('/'), Get("--ca", ""), Get("--admin"), File.ReadAllText(Get("--admin-pass-file")).Trim(),
             int.Parse(Get("--devices", "100")), int.Parse(Get("--live-s", "20")), int.Parse(Get("--slow-pct", "0")),
             Get("--server-pid", "") is { Length: > 0 } p ? int.Parse(p) : null, Get("--out", "sim-results.json"),
-            Get("--creds", "sim-creds.json"), int.Parse(Get("--parallel", "25")));
+            Get("--creds", "sim-creds.json"), int.Parse(Get("--parallel", "25")),
+            Get("--proxy-pid", "") is { Length: > 0 } pp ? int.Parse(pp) : null);
     }
 }
 
@@ -45,6 +46,7 @@ sealed class Sim
     private readonly Args _o;
     private readonly X509Certificate2? _ca;
     private readonly ConcurrentBag<double> _frameLatencyMs = new();
+    private readonly ConcurrentBag<double> _slowLatencyMs = new();
     private readonly ConcurrentDictionary<string, long> _ringArrivals = new();
     private readonly ConcurrentDictionary<string, long> _authAt = new();
     private long _bytesIn, _framesIn, _ready, _completedReceipts, _mediaConnects, _overflowCloses;
@@ -59,7 +61,7 @@ sealed class Sim
     }
 
     /// Proper chain validation against the lab CA (like curl --cacert): no certificate errors ignored.
-    private bool Validate(object _, X509Certificate? cert, X509Chain? __, SslPolicyErrors errors)
+    private bool Validate(object _, X509Certificate? cert, X509Chain? presented, SslPolicyErrors errors)
     {
         if (errors == SslPolicyErrors.None) return true;
         if (_ca is null || cert is null || (errors & SslPolicyErrors.RemoteCertificateNameMismatch) != 0) return false;
@@ -67,6 +69,8 @@ sealed class Sim
         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
         chain.ChainPolicy.CustomTrustStore.Add(_ca);
         chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        // intermediates sent by the server in the handshake
+        if (presented is not null) foreach (var el in presented.ChainElements) chain.ChainPolicy.ExtraStore.Add(el.Certificate);
         return chain.Build(new X509Certificate2(cert));
     }
 
@@ -96,7 +100,8 @@ sealed class Sim
     private async Task<JsonNode?> Post(HttpClient h, string path, object body)
     {
         var csrf = _jar.GetCookies(new Uri(_o.Server))["sb_csrf"]?.Value ?? "";
-        using var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
+        using var req = new HttpRequestMessage(HttpMethod.Post, path)
+        { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") };
         req.Headers.Add("X-CSRF", csrf);
         req.Headers.Add("Origin", _o.Server);
         var resp = await h.SendAsync(req);
@@ -267,7 +272,7 @@ sealed class Sim
                 if (f is null) continue;
                 Interlocked.Add(ref _bytesIn, r.Count);
                 Interlocked.Increment(ref _framesIn);
-                _frameLatencyMs.Add(Now() - (double)f.Value.CaptureTsMs);
+                (d.Slow ? _slowLatencyMs : _frameLatencyMs).Add(Now() - (double)f.Value.CaptureTsMs);
                 if (d.Slow) await Task.Delay(60);   // reads 3x slower than real time: a slow consumer
                 if (f.Value.IsLast) break;
             }
@@ -296,9 +301,12 @@ sealed class Sim
     // ------------------------------------------------------------------ server resource sampling
 
     private readonly List<JsonObject> _samples = [];
-    private async Task SampleAsync(string phase, CancellationToken ct)
+    private Task SampleAsync(string phase, CancellationToken ct) => Task.WhenAll(
+        SampleOneAsync(phase, "server", _o.ServerPid, ct), SampleOneAsync(phase, "proxy", _o.ProxyPid, ct));
+
+    private async Task SampleOneAsync(string phase, string who, int? pidOpt, CancellationToken ct)
     {
-        if (_o.ServerPid is not int pid) return;
+        if (pidOpt is not int pid) return;
         long lastTicks = ProcTicks(pid); var sw = Stopwatch.StartNew();
         while (!ct.IsCancellationRequested)
         {
@@ -306,15 +314,20 @@ sealed class Sim
             long ticks = ProcTicks(pid);
             double cpu = (ticks - lastTicks) / 100.0 / sw.Elapsed.TotalSeconds * 100.0;   // % of one core
             lastTicks = ticks; sw.Restart();
-            lock (_samples) _samples.Add(new JsonObject { ["phase"] = phase, ["t"] = Now(), ["cpu_pct_one_core"] = Math.Round(cpu, 1), ["rss_mb"] = RssMb(pid), ["threads"] = Threads(pid) });
+            lock (_samples) _samples.Add(new JsonObject { ["phase"] = phase, ["who"] = who, ["t"] = Now(), ["cpu_pct_one_core"] = Math.Round(cpu, 1), ["rss_mb"] = RssMb(pid), ["threads"] = Threads(pid) });
         }
     }
     private static long ProcTicks(int pid) { var f = File.ReadAllText($"/proc/{pid}/stat").Split(')')[1].Split(' ', StringSplitOptions.RemoveEmptyEntries); return long.Parse(f[11]) + long.Parse(f[12]); }
     private static double RssMb(int pid) => Math.Round(long.Parse(File.ReadAllLines($"/proc/{pid}/status").First(l => l.StartsWith("VmRSS:")).Split(' ', StringSplitOptions.RemoveEmptyEntries)[1]) / 1024.0, 1);
     private static int Threads(int pid) => int.Parse(File.ReadAllLines($"/proc/{pid}/status").First(l => l.StartsWith("Threads:")).Split('\t', StringSplitOptions.RemoveEmptyEntries)[1]);
-    private JsonObject Summarize(string phase)
+    private JsonObject Summarize(string phase) => new()
     {
-        List<JsonObject> s; lock (_samples) s = _samples.Where(x => x["phase"]!.GetValue<string>() == phase).ToList();
+        ["server"] = Summarize(phase, "server"), ["proxy_caddy"] = Summarize(phase, "proxy"),
+    };
+
+    private JsonObject Summarize(string phase, string who)
+    {
+        List<JsonObject> s; lock (_samples) s = _samples.Where(x => x["phase"]!.GetValue<string>() == phase && x["who"]!.GetValue<string>() == who).ToList();
         if (s.Count == 0) return new JsonObject { ["samples"] = 0 };
         var cpu = s.Select(x => x["cpu_pct_one_core"]!.GetValue<double>()).ToList();
         var rss = s.Select(x => x["rss_mb"]!.GetValue<double>()).ToList();
@@ -375,7 +388,7 @@ sealed class Sim
 
         // 4. live announcement fan-out with a simulated office microphone (real-time 20 ms frames)
         phase = new CancellationTokenSource(); sampler = SampleAsync("live", phase.Token);
-        _frameLatencyMs.Clear(); Interlocked.Exchange(ref _bytesIn, 0); Interlocked.Exchange(ref _framesIn, 0); Interlocked.Exchange(ref _ready, 0);
+        _frameLatencyMs.Clear(); _slowLatencyMs.Clear(); Interlocked.Exchange(ref _bytesIn, 0); Interlocked.Exchange(ref _framesIn, 0); Interlocked.Exchange(ref _ready, 0);
         var lease = await Post(office, "/api/announcements/lease", new { target = new { all = true }, max_duration_s = Math.Max(60, _o.LiveS + 30) });
         var leaseId = lease!["lease_id"]!.GetValue<string>();
         var live = await Post(office, "/api/announcements/live", new { target = new { all = true }, chime = false, lease_id = leaseId });
@@ -412,6 +425,8 @@ sealed class Sim
             ["expected_frames_total"] = frames * devices.Count, ["slow_consumer_overflow_closes"] = Interlocked.Read(ref _overflowCloses),
             ["media_egress_mbps_received"] = Math.Round(egressMbps, 1),
             ["frame_latency_capture_to_device_ms"] = Pct(fast),
+            ["slow_consumer_frame_latency_ms"] = Pct(_slowLatencyMs),
+            ["slow_consumers"] = slow,
             ["server"] = Summarize("live"),
             ["note"] = "latency = simulated-device receive time minus office capture timestamp (same host clock); transport only, excludes the renderer jitter buffer and audio output",
         };

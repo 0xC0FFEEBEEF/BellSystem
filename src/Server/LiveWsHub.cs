@@ -271,6 +271,7 @@ public sealed class LiveWsHub
         var incoming = Task.Run(() => DrainIncomingAsync(ws, cts));
         bool deliveredLast = false;
         string reason = "completed";
+        long staleDropped = 0;
 
         try
         {
@@ -300,11 +301,19 @@ public sealed class LiveWsHub
             }
             else
             {
+                int staleMs = _settings.LiveStaleFrameMs;
                 while (await stream.Reader.WaitToReadAsync(cts.Token))
                 {
                     while (stream.Reader.TryRead(out var frame))
                     {
                         if (ws.State != WebSocketState.Open) { reason = "media_socket_closed"; break; }
+                        // A lagging device gets current speech, not a backlog: live frames older than
+                        // the stale limit are dropped here (the renderer would discard them anyway).
+                        if (!frame.IsLast && staleMs > 0 && NowMs - (long)frame.CaptureTsMs > staleMs)
+                        {
+                            staleDropped++;
+                            continue;
+                        }
                         await ws.SendAsync(frame.ToBytes(), WebSocketMessageType.Binary, true, cts.Token);
                         _media.CountFrame(stream);
                         if (frame.IsLast) { deliveredLast = true; break; }
@@ -325,6 +334,9 @@ public sealed class LiveWsHub
         {
             cts.Cancel();
             _media.ReportStreamClosed(stream, deliveredLast ? "completed" : reason, deliveredLast);
+            if (staleDropped > 0)
+                _log.LogInformation("device {DeviceId} lagged on announcement {AnnouncementId}: {Dropped} stale live frame(s) skipped (older than {Ms} ms)",
+                    deviceId, announcementId, staleDropped, _settings.LiveStaleFrameMs);
             _log.LogInformation("device {DeviceId} media stream closed for announcement {AnnouncementId}: {Sent} frame(s) written to the socket, last frame {Last} — audible completion only counts if the device reports a completed receipt",
                 deviceId, announcementId, stream.FramesSent, deliveredLast);
             try { await ws.CloseSafe(deliveredLast ? WebSocketCloseStatus.NormalClosure : WebSocketCloseStatus.EndpointUnavailable,

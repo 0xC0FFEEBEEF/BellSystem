@@ -24,6 +24,17 @@ public sealed class Worker : BackgroundService
     private readonly ClientConfig? _cfg;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
     private string? _lastUserSid;
+    private string _bootMarker = "";
+
+    /// Boot identity = boot time rounded to the minute (UTC now minus uptime).
+    private static string BootId() =>
+        ((long)((DateTime.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64)) - DateTime.UnixEpoch).TotalMinutes).ToString();
+
+    private bool UserSeenThisBoot()
+    {
+        try { return File.Exists(_bootMarker) && File.ReadAllText(_bootMarker).Trim() is var b && Math.Abs(long.Parse(b) - long.Parse(BootId())) <= 1; }
+        catch (Exception) { return false; }
+    }
     private string? _updateState;
 
     public Worker(IConfiguration config, ILoggerFactory logFactory)
@@ -64,6 +75,8 @@ public sealed class Worker : BackgroundService
                 _router, _router, _router, _users, _keepAwake, _updater);
             _updater.SetQuietCheck(() => _agent.IsQuietPeriod());
             _pipe.Attach(_agent);
+            _bootMarker = Path.Combine(cfg.DataDir, "user-seen-boot.txt");
+            _router.NoUserSinceBoot = () => !UserSeenThisBoot();
             _pipe.ServiceState = () => new PipeServiceState(_agent.Connected, cfg.ServerUrl, _router.Owner,
                 Environment.MachineName, cfg.ClientVersion, _updateState);
             if (_agent.Settings.Current is { } s)
@@ -113,6 +126,11 @@ public sealed class Worker : BackgroundService
         while (!ct.IsCancellationRequested)
         {
             var (_, sid) = _users!.GetActiveUser();
+            if (sid is not null && !UserSeenThisBoot())
+            {
+                try { File.WriteAllText(_bootMarker, BootId()); } catch (Exception) { }
+                _agent!.NotifyStateChanged();
+            }
             if (sid != _lastUserSid)
             {
                 if (_lastUserSid is not null) _agent!.OnActiveUserChanged();

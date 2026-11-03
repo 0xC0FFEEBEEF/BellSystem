@@ -59,7 +59,7 @@ public sealed partial class DeviceAgent
                 var req = new PipeBellPlay(ring.RingId, ring.BellName, wav, ring.DurationS, _cfg.BellFadeMs,
                     ring.VolumePolicy, ring.VolumePolicy == "announcement" ? AnnouncementVolume : 0);
                 var outcome = await _bellPlayer.PlayAsync(req, ct);
-                state = outcome.Played ? ReceiptState.Completed : ReceiptState.Failed;
+                state = outcome.StateOverride ?? (outcome.Played ? ReceiptState.Completed : ReceiptState.Failed);
                 error = outcome.Reason;
             }
         }

@@ -53,6 +53,8 @@ public sealed class LiveSettings
 
     /// Per-device bounded send queue (PROTOCOL.md §7: 1500 frames ≈ 30 s ≈ 7.7 MB).
     public int MediaQueueFrames => Int("media_queue_frames", 1500, 1, 100_000);
+    /// Live frames older than this are not sent to a lagging device (0 = off). Visible in /api/diagnostics.
+    public int LiveStaleFrameMs => Int("live_stale_frame_ms", 3000, 0, 60_000);
 
     /// Flood guard: more than this many frames/s sustained for mic_burst_s drops the excess.
     public int MicFramesPerS => Int("mic_frames_per_s", 60, 10, 500);
@@ -82,6 +84,7 @@ public sealed class LiveSettings
         preparation_window_s = PreparationWindowS,
         media_token_ttl_s = MediaTokenTtlS,
         media_queue_frames = MediaQueueFrames,
+        live_stale_frame_ms = LiveStaleFrameMs,
         mic_frames_per_s = MicFramesPerS,
         mic_burst_s = MicBurstS,
         recorded_offer_ttl_s = RecordedOfferTtlS,
