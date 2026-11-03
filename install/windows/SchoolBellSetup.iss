@@ -123,7 +123,7 @@ begin
 end;
 
 function InitializeSetup(): Boolean;
-var Params, V: String; RC: Integer;
+var Params, V, CopyPath: String; RC: Integer;
 begin
   Result := True;
   CustomExit := 0;
@@ -134,8 +134,22 @@ begin
     V := ArgValue('server', 'SERVER'); if V <> '' then Params := Params + ' ' + Quote('/SERVER=' + V);
     V := ArgValue('enrollment-file', 'ENROLLMENTFILE'); if V <> '' then Params := Params + ' ' + Quote('/ENROLLMENTFILE=' + V);
     V := ArgValue('ca-file', 'CAFILE'); if V <> '' then Params := Params + ' ' + Quote('/CAFILE=' + V);
-    V := ArgValue('log', 'LOG'); if V <> '' then Params := Params + ' ' + Quote('/LOG=' + V);
-    if not Exec(ExpandConstant('{srcexe}'), Params, '', SW_HIDE, ewWaitUntilTerminated, RC) then RC := 1;
+    V := ArgValue('log', 'LOG'); if V <> '' then Params := Params + ' ' + Quote('/LOG=' + V + '.install.txt') else Params := Params + ' /LOG';
+    { A running Setup cannot open its own EXE (access denied), so PowerShell starts the silent
+      child and hands back its exit code. }
+    Log('srcexe=' + ExpandConstant('{srcexe}') + ' exists=' + IntToStr(Ord(FileExists(ExpandConstant('{srcexe}')))));
+    CopyPath := ExpandConstant('{tmp}\relaunch.ps1');
+    SaveStringToFile(CopyPath,
+      '$p = Start-Process -FilePath ''' + ExpandConstant('{srcexe}') + ''' -ArgumentList ''' + Params + ''' -Wait -PassThru' + #13#10 +
+      'exit $p.ExitCode' + #13#10, False);
+    Log('relaunching silently via PowerShell: ' + Params);
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + Quote(CopyPath), '', SW_HIDE, ewWaitUntilTerminated, RC) then
+    begin
+      Log('relaunch failed: ' + SysErrorMessage(RC));
+      RC := 1;
+    end;
+    Log('silent install finished with exit code ' + IntToStr(RC));
     ExitProcess(RC);
   end;
 
@@ -220,9 +234,9 @@ begin
   if CaFile = '' then Exit;
   { add to LocalMachine\Root; remember the thumbprint only if WE added it (uninstall removes only ours) }
   PowerShell('$c = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 ''' + CaFile + '''; ' +
-    'if (Test-Path (''Cert:\LocalMachine\Root\'' + $c.Thumbprint)) { ''existing:'' + $c.Thumbprint } ' +
-    'else { Import-Certificate -FilePath ''' + CaFile + ''' -CertStoreLocation Cert:\LocalMachine\Root | Out-Null; ''added:'' + $c.Thumbprint } ' +
-    '| Out-File -Encoding ascii ''' + ExpandConstant('{tmp}\ca.txt') + '''');
+    '$r = if (Test-Path (''Cert:\LocalMachine\Root\'' + $c.Thumbprint)) { ''existing:'' + $c.Thumbprint } ' +
+    'else { Import-Certificate -FilePath ''' + CaFile + ''' -CertStoreLocation Cert:\LocalMachine\Root | Out-Null; ''added:'' + $c.Thumbprint }; ' +
+    '$r | Out-File -Encoding ascii ''' + ExpandConstant('{tmp}\ca.txt') + '''');
   if LoadStringFromFile(ExpandConstant('{tmp}\ca.txt'), Content) then
   begin
     Thumb := Trim(String(Content));
