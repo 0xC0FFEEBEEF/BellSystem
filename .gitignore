@@ -7,3 +7,9 @@ client/build-venv/
 client/dist/
 client/build/
 client/*.spec
+bin/
+obj/
+data-dev/
+dist/
+*.user
+TestResults/
