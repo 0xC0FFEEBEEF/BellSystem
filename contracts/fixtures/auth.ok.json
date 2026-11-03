@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "auth.ok",
+  "event_id": "ccda6811-b70b-47b9-b887-c5454cec83a9",
+  "issued_at": 1793690000000,
+  "payload": {
+    "server_time": 1793690000000
+  }
+}

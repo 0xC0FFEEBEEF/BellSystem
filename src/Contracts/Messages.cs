@@ -1,0 +1,139 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace SchoolBell.Contracts;
+
+/// Control envelope shared by server, clients and simulator (PROTOCOL.md §3).
+public sealed record ControlEnvelope(
+    int V,
+    string Type,
+    string? EventId = null,
+    long? IssuedAt = null,
+    JsonNode? Payload = null)
+{
+    public static ControlEnvelope Create(string type, JsonNode? payload = null) =>
+        new(Protocol.Version, type, Guid.NewGuid().ToString(),
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), payload);
+
+    public static readonly JsonSerializerOptions Json = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented = false,
+    };
+
+    public string ToJson() => JsonSerializer.Serialize(this, Json);
+
+    public static ControlEnvelope? Parse(string json)
+    {
+        if (json.Length > Protocol.MaxControlMessageBytes) return null;
+        try
+        {
+            var env = JsonSerializer.Deserialize<ControlEnvelope>(json, Json);
+            if (env is null || env.V != Protocol.Version || string.IsNullOrEmpty(env.Type)) return null;
+            return env;
+        }
+        catch (JsonException) { return null; }
+    }
+}
+
+public static class PayloadSerializer
+{
+    public static T? ToPayload<T>(ControlEnvelope env) =>
+        env.Payload is null ? default : env.Payload.Deserialize<T>(ControlEnvelope.Json);
+
+    public static JsonNode Node<T>(T payload) => JsonSerializer.SerializeToNode(payload, ControlEnvelope.Json)!;
+}
+
+// ---------- payload records (field names serialize snake_case) ----------
+
+public sealed record AuthChallengePayload(string Nonce);
+public sealed record AuthResponsePayload(string DeviceId, string ClientVersion, string Proof);
+public sealed record AuthOkPayload(long ServerTime);
+
+public sealed record QueuedReceipt(string OccurrenceOrAnnouncementId, string State, long At, string? ErrorCode);
+public sealed record DeviceResyncPayload(string? Cursor, long CacheRevision, List<QueuedReceipt> Receipts);
+
+public sealed record PlaybackResult(string OccurrenceOrAnnouncementId, string State, long At);
+public sealed record KeepAwakeStatus(bool Desired, bool Applied, long ExpiresAt);
+public sealed record DeviceStatusPayload(
+    string ComputerName,
+    string? ActiveUser,
+    string? ActiveUserSid,
+    string Renderer,               // ready | no_renderer | error
+    string? RendererReason,        // signed_out | missing_output | crash | ...
+    string? OutputDevice,
+    bool OutputPresent,
+    bool MasterMuted, int MasterVolume,
+    bool SessionMuted, int SessionVolume,
+    long ClockOffsetMs,
+    long CacheRevision,
+    long CacheExpiresAt,
+    KeepAwakeStatus KeepAwake,
+    PlaybackResult? LastPlayback,
+    string Companion);             // running | hidden | missing
+
+public sealed record SoundRef(string Id, string Sha256, string Url);
+
+public sealed record TargetScope(bool? All, List<long>? Groups, List<string>? Devices)
+{
+    public bool Matches(string deviceId, IEnumerable<long> deviceGroups)
+    {
+        if (All == true) return true;
+        if (Devices is not null && Devices.Contains(deviceId)) return true;
+        if (Groups is not null && Groups.Any(g => deviceGroups.Contains(g))) return true;
+        return false;
+    }
+}
+
+public sealed record Occurrence(
+    string OccurrenceId,
+    long StartsAt,
+    string BellName,
+    string Kind,                   // start | end | warn
+    string SoundId,
+    string VolumePolicy,           // announcement | inherit
+    int DurationS,
+    TargetScope Target,
+    string ScheduleTemplate,
+    string LocalDate,
+    string LocalHm,
+    long ExpiresAt);
+
+public sealed class ScheduleManifestPayload
+{
+    public long Revision { get; set; }
+    public string SchoolTz { get; set; } = "";
+    public long GeneratedAt { get; set; }
+    public long HorizonStart { get; set; }
+    public long HorizonEnd { get; set; }
+    public long ExpiresAt { get; set; }
+    public List<SoundRef> Sounds { get; set; } = [];
+    public List<Occurrence> Occurrences { get; set; } = [];
+    public string Signature { get; set; } = "";  // base64 HMAC over CanonicalJson (Signature excluded)
+}
+
+public sealed record ScheduleAckPayload(long Revision, long AcceptedAt, long ExpiresAt);
+public sealed record ManifestRejectedPayload(long Revision, string Reason);
+
+public sealed record ReceiptPayload(string OccurrenceOrAnnouncementId, string State, long At, string? ErrorCode);
+
+public sealed record KeepAwakeSetPayload(string PolicyId, long ExpiresAt, bool DisplayOff);
+public sealed record KeepAwakeClearPayload(string PolicyId);
+public sealed record KeepAwakeAckPayload(string PolicyId, long AppliedAt, bool Applied);
+
+public sealed record MediaFormat(string Codec, int SampleRate, int Channels, int FrameMs);
+public sealed record AnnouncementOfferPayload(
+    string AnnouncementId,
+    string Kind,                   // live | recorded
+    string AudienceSnapshotId,
+    string Priority,               // live | normal
+    MediaFormat Format,
+    long OfferExpiresAt,
+    int MaxDurationS,
+    bool Chime,
+    string SourceLabel);
+public sealed record AnnouncementReadyPayload(string AnnouncementId, string OutputDevice);
+public sealed record AnnouncementRejectPayload(string AnnouncementId, string Reason);
+public sealed record AnnouncementEndPayload(string AnnouncementId, string EndedBy, long At);
+public sealed record MediaTokenPayload(string AnnouncementId, string Token, long ExpiresAt);

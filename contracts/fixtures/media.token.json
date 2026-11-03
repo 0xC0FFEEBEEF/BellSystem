@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "media.token",
+  "event_id": "b78aea99-8b9d-4d09-8156-66a7164f0d45",
+  "issued_at": 1793690000000,
+  "payload": {
+    "announcement_id": "an-uuid",
+    "token": "mt-otp-32hex",
+    "expires_at": 1793690010000
+  }
+}

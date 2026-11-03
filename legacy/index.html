@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SchoolBell — bell schedule console</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="static/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c-3.3 0-6 2.7-6 6v5l-2 2v1h16v-1l-2-2V9c0-3.3-2.7-6-6-6zm0 18a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2z"/></svg>
+    <span class="brand-name">SchoolBell</span>
+    <span class="brand-school" id="school-name"></span>
+  </div>
+  <nav id="nav" aria-label="Sections">
+    <button class="nav-btn is-active" data-view="today">Today</button>
+    <button class="nav-btn" data-view="schedules">Schedules</button>
+    <button class="nav-btn" data-view="calendar">Calendar</button>
+    <button class="nav-btn" data-view="activity">Activity</button>
+    <button class="nav-btn" data-view="settings">Settings</button>
+  </nav>
+  <div class="clock" id="server-clock" title="Server time">
+    <span class="clock-time mono" id="clock-time">—</span>
+    <span class="clock-tz" id="clock-tz"></span>
+  </div>
+</header>
+
+<main>
+  <!-- ============ TODAY ============ -->
+  <section class="view is-active" id="view-today">
+    <div class="today-hero">
+      <div class="next-bell">
+        <div class="nb-label" id="nb-label">Loading…</div>
+        <div class="nb-count mono" id="nb-countdown">—</div>
+        <div class="nb-sub" id="nb-sub"></div>
+      </div>
+      <div class="clients-strip">
+        <h2 class="sec-title">Bell clients</h2>
+        <ul class="client-list" id="today-clients"></ul>
+        <p class="empty small" id="today-clients-empty" hidden>No clients have checked in yet.</p>
+      </div>
+    </div>
+    <div>
+      <h2 class="sec-title" id="today-title">Today’s bells</h2>
+      <table class="table" id="today-table" hidden>
+        <thead><tr><th class="num">Time</th><th>Bell</th><th>Period</th></tr></thead>
+        <tbody id="today-body"></tbody>
+      </table>
+      <p class="empty" id="today-empty" hidden></p>
+    </div>
+  </section>
+
+  <!-- ============ SCHEDULES ============ -->
+  <section class="view" id="view-schedules">
+    <div class="sched-grid">
+      <div class="sched-list-col">
+        <h2 class="sec-title">Schedules</h2>
+        <ul class="sched-list" id="sched-list"></ul>
+        <p class="empty small" id="sched-empty" hidden>No schedules yet. Create your first one below.</p>
+        <form class="inline-form" id="new-schedule-form">
+          <input id="new-schedule-name" type="text" placeholder="New schedule name" maxlength="60" required>
+          <button class="btn" type="submit">Add schedule</button>
+        </form>
+      </div>
+      <div class="sched-edit-col">
+        <div id="sched-editor" hidden>
+          <div class="editor-head">
+            <input class="edit-name" id="edit-sched-name" type="text" maxlength="60" aria-label="Schedule name">
+            <div class="editor-actions">
+              <button class="btn btn-quiet" id="dup-sched" type="button">Duplicate</button>
+              <button class="btn btn-danger" id="del-sched" type="button">Delete</button>
+            </div>
+          </div>
+          <input class="edit-note" id="edit-sched-note" type="text" placeholder="Note (e.g. Mon–Fri full day)" maxlength="120">
+          <table class="table period-table">
+            <thead><tr><th>#</th><th>Period name</th><th>Start</th><th>End</th><th>Pre-bell (min)</th><th></th></tr></thead>
+            <tbody id="period-body"></tbody>
+          </table>
+          <div class="editor-foot">
+            <button class="btn btn-quiet" id="add-period" type="button">+ Add period</button>
+            <button class="btn" id="save-periods" type="button">Save periods</button>
+          </div>
+          <p class="form-error" id="sched-error" hidden></p>
+        </div>
+        <p class="empty" id="sched-no-selection">Select a schedule to edit its periods.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CALENDAR ============ -->
+  <section class="view" id="view-calendar">
+    <div class="cal-grid">
+      <div>
+        <h2 class="sec-title">Weekly defaults</h2>
+        <table class="table">
+          <tbody id="weekday-body"></tbody>
+        </table>
+        <div class="editor-foot"><button class="btn" id="save-calendar" type="button">Save week</button></div>
+      </div>
+      <div>
+        <h2 class="sec-title">Date overrides</h2>
+        <p class="hint">Overrides replace the weekly default for one date. Choose “No bells” to silence a day.</p>
+        <form class="inline-form" id="override-form">
+          <input id="override-date" type="text" inputmode="numeric" pattern="\d{4}-\d{2}-\d{2}" maxlength="10" placeholder="YYYY-MM-DD" required>
+          <select id="override-sched"></select>
+          <button class="btn" type="submit">Set override</button>
+        </form>
+        <table class="table" id="override-table" hidden>
+          <thead><tr><th>Date</th><th>Applies</th><th></th></tr></thead>
+          <tbody id="override-body"></tbody>
+        </table>
+        <p class="empty small" id="override-empty" hidden>No overrides. Every day uses its weekly default.</p>
+      </div>
+      <div>
+        <h2 class="sec-title">Holidays</h2>
+        <p class="hint">Holidays silence all bells, even over an override.</p>
+        <form class="inline-form" id="holiday-form">
+          <input id="holiday-date" type="text" inputmode="numeric" pattern="\d{4}-\d{2}-\d{2}" maxlength="10" placeholder="YYYY-MM-DD" required>
+          <input id="holiday-name" type="text" placeholder="Holiday name" maxlength="60" required>
+          <button class="btn" type="submit">Add holiday</button>
+        </form>
+        <table class="table" id="holiday-table" hidden>
+          <thead><tr><th>Date</th><th>Name</th><th></th></tr></thead>
+          <tbody id="holiday-body"></tbody>
+        </table>
+        <p class="empty small" id="holiday-empty" hidden>No holidays added.</p>
+      </div>
+    </div>
+    <p class="form-error" id="cal-error" hidden></p>
+  </section>
+
+  <!-- ============ ACTIVITY ============ -->
+  <section class="view" id="view-activity">
+    <h2 class="sec-title">Bell clients</h2>
+    <table class="table" id="clients-table" hidden>
+      <thead><tr><th>Name</th><th>Status</th><th class="num">Last check-in</th></tr></thead>
+      <tbody id="clients-body"></tbody>
+    </table>
+    <p class="empty" id="clients-empty" hidden>No clients registered yet. Run the bell client on each classroom PC and it will appear here.</p>
+    <h2 class="sec-title">Bell log</h2>
+    <table class="table" id="log-table" hidden>
+      <thead><tr><th>Client</th><th class="num">Date</th><th class="num">Time</th><th>Bell</th><th>Period</th></tr></thead>
+      <tbody id="log-body"></tbody>
+    </table>
+    <p class="empty" id="log-empty" hidden>No bells recorded yet. Clients report each bell as it rings.</p>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="view" id="view-settings">
+    <div class="settings-grid">
+      <div>
+        <h2 class="sec-title">School</h2>
+        <label class="field"><span>School name</span>
+          <input id="set-school" type="text" maxlength="80" placeholder="e.g. your school’s name">
+        </label>
+        <label class="field"><span>Timezone</span>
+          <input id="set-tz" type="text" list="tz-options" placeholder="America/New_York">
+          <small class="hint">Currently effective: <span class="mono" id="eff-tz"></span>. Blank uses the server’s own timezone.</small>
+          <datalist id="tz-options">
+            <option value="America/New_York"></option><option value="America/Chicago"></option>
+            <option value="America/Denver"></option><option value="America/Los_Angeles"></option>
+            <option value="America/Phoenix"></option><option value="America/Anchorage"></option>
+            <option value="Pacific/Honolulu"></option><option value="UTC"></option>
+          </datalist>
+        </label>
+      </div>
+      <div>
+        <h2 class="sec-title">Bell sounds</h2>
+        <label class="field"><span>Pre-bell</span>
+          <select id="set-sound-warn"></select>
+          <button class="btn btn-quiet btn-sm" type="button" data-preview="warn">Preview</button>
+        </label>
+        <label class="field"><span>Start-of-period bell</span>
+          <select id="set-sound-start"></select>
+          <button class="btn btn-quiet btn-sm" type="button" data-preview="start">Preview</button>
+        </label>
+        <label class="field"><span>End-of-period bell</span>
+          <select id="set-sound-end"></select>
+          <button class="btn btn-quiet btn-sm" type="button" data-preview="end">Preview</button>
+        </label>
+      </div>
+    </div>
+    <div class="editor-foot"><button class="btn" id="save-settings" type="button">Save settings</button></div>
+    <p class="form-error" id="set-error" hidden></p>
+    <audio id="preview-audio" preload="none"></audio>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+<script src="static/app.js"></script>
+</body>
+</html>

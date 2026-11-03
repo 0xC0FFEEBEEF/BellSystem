@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "announcement.end",
+  "event_id": "d472b253-1fd7-46ae-9432-265a05279585",
+  "issued_at": 1793690000000,
+  "payload": {
+    "announcement_id": "an-uuid",
+    "ended_by": "lease",
+    "at": 1793690300000
+  }
+}

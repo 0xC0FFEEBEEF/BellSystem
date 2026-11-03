@@ -1,0 +1,33 @@
+{
+  "v": 1,
+  "type": "device.status",
+  "event_id": "2fa3c5a3-d68e-40a1-ad57-c62f91093c5d",
+  "issued_at": 1793690000000,
+  "payload": {
+    "computer_name": "rhs-9393",
+    "active_user": "james.doe",
+    "active_user_sid": "S-1-5-21-100",
+    "renderer": "ready",
+    "renderer_reason": null,
+    "output_device": "Speakers (Realtek)",
+    "output_present": true,
+    "master_muted": false,
+    "master_volume": 42,
+    "session_muted": false,
+    "session_volume": 55,
+    "clock_offset_ms": 812,
+    "cache_revision": 7,
+    "cache_expires_at": 1794208400000,
+    "keep_awake": {
+      "desired": true,
+      "applied": true,
+      "expires_at": 1793691800000
+    },
+    "last_playback": {
+      "occurrence_or_announcement_id": "occ-abc",
+      "state": "completed",
+      "at": 1793689995000
+    },
+    "companion": "running"
+  }
+}

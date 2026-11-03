@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "type": "device.resync",
+  "event_id": "1c0d0a7b-f4dd-4fa2-a3ef-998be4949d0f",
+  "issued_at": 1793690000000,
+  "payload": {
+    "cursor": "0b5e1a22-...uuid",
+    "cache_revision": 7,
+    "receipts": [
+      {
+        "occurrence_or_announcement_id": "occ-abc",
+        "state": "completed",
+        "at": 1793689995000,
+        "error_code": null
+      }
+    ]
+  }
+}

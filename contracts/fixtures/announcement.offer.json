@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "type": "announcement.offer",
+  "event_id": "f61f628a-a03b-498a-80b6-21df6e86a568",
+  "issued_at": 1793690000000,
+  "payload": {
+    "announcement_id": "an-uuid",
+    "kind": "live",
+    "audience_snapshot_id": "aud-uuid",
+    "priority": "live",
+    "format": {
+      "codec": "pcm_s16le",
+      "sample_rate": 16000,
+      "channels": 1,
+      "frame_ms": 20
+    },
+    "offer_expires_at": 1793690005000,
+    "max_duration_s": 300,
+    "chime": true,
+    "source_label": "Office \u2014 all endpoints"
+  }
+}

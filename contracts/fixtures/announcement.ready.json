@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "announcement.ready",
+  "event_id": "81ea5ac5-4252-496c-99de-d8580049be4a",
+  "issued_at": 1793690000000,
+  "payload": {
+    "announcement_id": "an-uuid",
+    "output_device": "Speakers (Realtek)"
+  }
+}

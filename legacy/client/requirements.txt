@@ -1,0 +1,5 @@
+# SchoolBell classroom client
+# The client itself is stdlib-only; these are for building the Windows .exe
+# (and tzdata so zoneinfo works on Windows builds that need named timezones).
+pyinstaller>=6.0
+tzdata

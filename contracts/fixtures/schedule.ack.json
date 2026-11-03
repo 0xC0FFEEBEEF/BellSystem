@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "schedule.ack",
+  "event_id": "bc3ff49d-81b6-4be6-9701-9ccb3b38bfc8",
+  "issued_at": 1793690000000,
+  "payload": {
+    "revision": 8,
+    "accepted_at": 1793690001000,
+    "expires_at": 1794294800000
+  }
+}

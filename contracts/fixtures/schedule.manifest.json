@@ -1,0 +1,58 @@
+{
+  "v": 1,
+  "type": "schedule.manifest",
+  "event_id": "f795b848-f714-4ff8-b7a9-f8e87f037968",
+  "issued_at": 1793690000000,
+  "payload": {
+    "revision": 8,
+    "school_tz": "America/Chicago",
+    "generated_at": 1793690000000,
+    "horizon_start": 1793690000000,
+    "horizon_end": 1794294800000,
+    "expires_at": 1794294800000,
+    "sounds": [
+      {
+        "id": "std-bell",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "url": "/api/sounds/std-bell"
+      }
+    ],
+    "occurrences": [
+      {
+        "occurrence_id": "o1",
+        "starts_at": 1793693600000,
+        "bell_name": "Period 1 start",
+        "kind": "start",
+        "sound_id": "std-bell",
+        "volume_policy": "announcement",
+        "duration_s": 3,
+        "target": {
+          "all": true
+        },
+        "schedule_template": "Regular Day",
+        "local_date": "2026-11-04",
+        "local_hm": "08:30",
+        "expires_at": 1794294800000
+      },
+      {
+        "occurrence_id": "o2",
+        "starts_at": 1793697200000,
+        "bell_name": "Period 1 end",
+        "kind": "end",
+        "sound_id": "std-bell",
+        "volume_policy": "announcement",
+        "duration_s": 3,
+        "target": {
+          "groups": [
+            3
+          ]
+        },
+        "schedule_template": "Regular Day",
+        "local_date": "2026-11-04",
+        "local_hm": "09:20",
+        "expires_at": 1794294800000
+      }
+    ],
+    "signature": ""
+  }
+}

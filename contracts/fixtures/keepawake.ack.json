@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "keepawake.ack",
+  "event_id": "b80c4d3f-e18f-44ce-84ad-4e05abb9edd8",
+  "issued_at": 1793690000000,
+  "payload": {
+    "policy_id": "kp-1",
+    "applied_at": 1793690000500,
+    "applied": true
+  }
+}

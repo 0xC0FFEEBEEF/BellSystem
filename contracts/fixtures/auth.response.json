@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "auth.response",
+  "event_id": "4eb51d45-9726-4a9f-a4ff-7f0762eb71ed",
+  "issued_at": 1793690000000,
+  "payload": {
+    "device_id": "6f6d2e1a-1111-4c2b-9a34-5d7e8f901234",
+    "client_version": "1.0.0",
+    "proof": "8d3f1e...hex32..."
+  }
+}

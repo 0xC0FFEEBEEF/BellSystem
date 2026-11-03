@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "auth.challenge",
+  "event_id": "ac31bd0d-2abb-41fa-8af6-de5c50fd62e5",
+  "issued_at": 1793690000000,
+  "payload": {
+    "nonce": "3f7ab2c1d9e4058a6b3c7d1e2f405869"
+  }
+}

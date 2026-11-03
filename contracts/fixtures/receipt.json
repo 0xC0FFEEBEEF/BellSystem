@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "receipt",
+  "event_id": "6a850759-f5e4-45d5-8b0b-c689e28dfde6",
+  "issued_at": 1793690000000,
+  "payload": {
+    "occurrence_or_announcement_id": "o1",
+    "state": "suppressed",
+    "at": 1793690000000,
+    "error_code": "live_speech"
+  }
+}

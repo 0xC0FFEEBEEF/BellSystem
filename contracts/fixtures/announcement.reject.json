@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "announcement.reject",
+  "event_id": "15e8bd0d-c4b8-492f-9daa-90cc2052acb7",
+  "issued_at": 1793690000000,
+  "payload": {
+    "announcement_id": "an-uuid",
+    "reason": "renderer"
+  }
+}

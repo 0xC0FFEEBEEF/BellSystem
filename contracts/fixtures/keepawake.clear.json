@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "keepawake.clear",
+  "event_id": "774dd916-cf5a-4237-8032-ce1c1a9f3087",
+  "issued_at": 1793690000000,
+  "payload": {
+    "policy_id": "kp-1"
+  }
+}

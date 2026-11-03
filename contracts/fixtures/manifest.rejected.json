@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "type": "manifest.rejected",
+  "event_id": "f444113b-2826-4d23-bfd2-571d800f3fb0",
+  "issued_at": 1793690000000,
+  "payload": {
+    "revision": 8,
+    "reason": "signature"
+  }
+}

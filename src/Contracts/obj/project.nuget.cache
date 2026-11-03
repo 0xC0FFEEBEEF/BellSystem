@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "R4Jyb5koym0=",
+  "success": true,
+  "projectFilePath": "/home/coder/projects/chats/17c3b543-09e5-4b3e-b868-4ee873095f73/src/Contracts/Contracts.csproj",
+  "expectedPackageFiles": [
+    "/home/coder/.nuget/packages/microsoft.windowsdesktop.app.ref/8.0.33/microsoft.windowsdesktop.app.ref.8.0.33.nupkg.sha512"
+  ],
+  "logs": []
+}
