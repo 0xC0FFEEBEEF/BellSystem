@@ -40,3 +40,10 @@
 12. **No device-count limit exists**; resource pressure is bounded only by visible configured
     queues — a school should watch `/api/diagnostics` (queue depths, dropped-frame counters) as
     enrollment grows toward the tested simulator ceiling.
+
+## Update 2026-11-03 (second session) — see HANDOFF.md §8 for the current list
+
+- Items 2, 6, 7, 9 and 10 above are superseded: Windows audio, the installer and the browser path were tested
+  on a Windows 11 VM; the solution now targets .NET 10; the UI is React + TypeScript; SchoolBellSetup.exe is
+  built with Inno Setup 6.7.3; Whisper is intentionally off for this pilot.
+- New: pre-login (no-user-since-boot) audio is silent on Windows 11 25H2 — reported as no_renderer/unknown.
