@@ -101,7 +101,7 @@ public sealed class PipeServerHost : IBellPlayer, IAnnouncementPipeline, IRender
 
     private NamedPipeServerStream CreatePipeInstance()
     {
-        return new NamedPipeServerStream(
+        return NamedPipeServerStreamAcl.Create(
             PipeProtocol.PipeName,
             PipeDirection.InOut,
             maxNumberOfServerInstances: 4,

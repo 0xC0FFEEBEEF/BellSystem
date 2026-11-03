@@ -2,5 +2,11 @@
   <PropertyGroup>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Reproducible restores: every project commits packages.lock.json; release builds restore in locked mode. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
+    <Version Condition="'$(Version)' == ''">0.9.0</Version>
+    <Company>SchoolBell pilot</Company>
+    <Product>SchoolBell</Product>
   </PropertyGroup>
 </Project>
