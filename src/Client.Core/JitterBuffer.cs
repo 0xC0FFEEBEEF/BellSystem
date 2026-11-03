@@ -39,14 +39,14 @@ public sealed class JitterBuffer
         lock (_gate)
         {
             if (_ended) { _staleDropped++; return; }
-            if (_lastEmittedSeq >= 0 && frame.Seq <= _lastEmittedSeq)
+            long highSeq = _frames.Count == 0 ? _lastEmittedSeq : _frames.Last!.Value.Seq;
+            if (frame.Seq <= highSeq)
             {
-                _staleDropped++;
+                _staleDropped++; // duplicate or out-of-order frame: obsolete, drop
                 return;
             }
-            var lastBuffered = _frames.Last is null ? _lastEmittedSeq : _frames.Last.Value.Seq;
-            if (frame.Seq > lastBuffered + 1)
-                _gapsDropped += frame.Seq - lastBuffered - 1; // count missing frames; do not fabricate
+            if (frame.Seq > highSeq + 1)
+                _gapsDropped += frame.Seq - highSeq - 1; // count missing frames; do not fabricate
             _frames.AddLast(frame);
             TrimToMax();
         }

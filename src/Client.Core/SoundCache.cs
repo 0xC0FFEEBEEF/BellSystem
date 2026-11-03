@@ -32,22 +32,23 @@ public sealed class SoundCache
     public bool HasCache => Directory.Exists(CurrentDir);
 
     public async Task<SoundCacheResult> FetchAndSwapAsync(
-        HttpClient http, IEnumerable<SoundRef> sounds, CancellationToken ct)
-    {
-        lock (_gate)
+        HttpClient http, IEnumerable<SoundRef> sounds, CancellationToken ct) =>
+        await Task.Run(() =>
         {
-            var stage = System.IO.Path.Combine(_root, "stage-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(stage);
-            try
+            lock (_gate)
             {
-                return Run(http, sounds, stage, ct);
+                var stage = System.IO.Path.Combine(_root, "stage-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(stage);
+                try
+                {
+                    return Run(http, sounds, stage, ct);
+                }
+                finally
+                {
+                    TryDeleteTree(stage);
+                }
             }
-            finally
-            {
-                TryDeleteTree(stage);
-            }
-        }
-    }
+        }, ct);
 
     private SoundCacheResult Run(HttpClient http, IEnumerable<SoundRef> sounds, string stage, CancellationToken ct)
     {

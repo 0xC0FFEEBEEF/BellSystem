@@ -5,10 +5,13 @@
 # Upgrades preserve /etc/schoolbell and /var/lib/schoolbell. Run as root:
 #   sudo bash install/server/install.sh [--public-host NAME] [--no-caddy] [--server-name NAME]
 set -u
-PREFIX=/opt/schoolbell
-ETC=/etc/schoolbell
-VAR=/var/lib/schoolbell
-LOG=/var/log/schoolbell
+# Production defaults; the SB_* overrides exist for test/container environments
+# (documented in docs/OPERATIONS.md) and change nothing in the normal path.
+PREFIX=${SB_PREFIX:-/opt/schoolbell}
+ETC=${SB_ETC:-/etc/schoolbell}
+VAR=${SB_VAR:-/var/lib/schoolbell}
+LOG=${SB_LOG:-/var/log/schoolbell}
+SKIP_SYSTEMD=${SB_SKIP_SYSTEMD:-0}   # 1 = start the binary directly (test environments only)
 PUBLIC_HOST=""
 WITH_CADDY=1
 SERVER_NAME="SchoolBell"
@@ -25,16 +28,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$(id -u)" != 0 ]; then echo "run as root (sudo bash install/server/install.sh)" >&2; exit 1; fi
+if [ "$(id -u)" != 0 ] && [ "$SKIP_SYSTEMD" != 1 ]; then echo "run as root (sudo bash install/server/install.sh)" >&2; exit 1; fi
 if [ ! -x "$BUNDLE/SchoolBellServer" ]; then
   echo "bundle not found at $BUNDLE — run build/publish.sh first" >&2; exit 1
 fi
-if ! command -v systemctl >/dev/null; then echo "systemd required (Ubuntu 24.04)" >&2; exit 1; fi
+if ! command -v systemctl >/dev/null && [ "$SKIP_SYSTEMD" != 1 ]; then echo "systemd required (Ubuntu 24.04)" >&2; exit 1; fi
 
 echo "== creating user and directories"
-id -u schoolbell >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin schoolbell
+if [ "$SKIP_SYSTEMD" != 1 ]; then
+  id -u schoolbell >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin schoolbell
+  install -d -m 0750 -o schoolbell -g schoolbell "$VAR" "$LOG"
+else
+  install -d -m 0755 "$VAR" "$LOG"
+fi
 install -d -m 0755 "$PREFIX" "$PREFIX/server"
-install -d -m 0750 -o schoolbell -g schoolbell "$VAR" "$LOG"
 install -d -m 0755 "$ETC"
 
 echo "== installing binaries (state and config preserved)"
@@ -47,6 +54,14 @@ mv -f "$PREFIX/server/SchoolBellServer.new" "$PREFIX/server/SchoolBellServer"
 cp -rf "$BUNDLE/." "$PREFIX/server/"
 
 if [ ! -f "$ETC/env" ]; then
+  if [ "$SKIP_SYSTEMD" = 1 ]; then
+    cat > "$ETC/env" <<EOF
+# SchoolBell environment (sandbox test mode via SB_SKIP_SYSTEMD=1)
+SchoolBell__Urls=${SB_URLS:-http://127.0.0.1:5001}
+SchoolBell__DataDir=$VAR
+SchoolBell__ServerName=$SERVER_NAME
+EOF
+  else
   cat > "$ETC/env" <<EOF
 # SchoolBell server environment (edit then: systemctl restart schoolbell)
 SchoolBell__Urls=http://127.0.0.1:5001
@@ -56,9 +71,15 @@ SchoolBell__ServerName=$SERVER_NAME
 # SchoolBell__MaxConnections=1000
 # SchoolBell__OutboxCap=500
 EOF
+  fi
   echo "   wrote $ETC/env (existing file left untouched on upgrades)"
 fi
 
+if [ "$SKIP_SYSTEMD" = 1 ]; then
+  WITH_CADDY=0
+  echo "== sandbox test mode: skipping systemd/caddy; starting binary directly"
+  ( cd "$PREFIX/server" && set -a && . "$ETC/env" && [ -n "${SB_SETUP_CODE:-}" ] && export SchoolBell__TestSetupCode="$SB_SETUP_CODE"; ./SchoolBellServer >"$LOG/server.log" 2>&1 & echo $! > "$PREFIX/server.pid" )
+else
 echo "== installing systemd units"
 install -m 0644 "$REPO/infra/systemd/schoolbell.service" /etc/systemd/system/schoolbell.service
 
@@ -86,16 +107,18 @@ systemctl daemon-reload
 systemctl enable schoolbell >/dev/null
 systemctl restart schoolbell
 [ "$WITH_CADDY" = 1 ] && { systemctl enable schoolbell-caddy >/dev/null; systemctl restart schoolbell-caddy; }
+fi
 
+CHECK_URL=${SB_URLS:-http://127.0.0.1:5001}
 echo "== health check"
 ok=0
 for _ in 1 2 3 4 5; do
-  if curl -sf http://127.0.0.1:5001/ >/dev/null; then ok=1; break; fi
+  if curl -sf "$CHECK_URL/" >/dev/null; then ok=1; break; fi
   sleep 2
 done
 if [ "$ok" != 1 ]; then
-  echo "ERROR: server not answering on 127.0.0.1:5001 — journalctl -u schoolbell follows:" >&2
-  journalctl -u schoolbell -n 25 --no-pager >&2
+  echo "ERROR: server not answering on $CHECK_URL — recent logs:" >&2
+  if [ "$SKIP_SYSTEMD" = 1 ]; then tail -25 "$LOG/server.log" >&2; else journalctl -u schoolbell -n 25 --no-pager >&2; fi
   exit 1
 fi
 

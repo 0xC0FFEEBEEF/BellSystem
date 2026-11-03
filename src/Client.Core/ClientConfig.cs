@@ -23,6 +23,12 @@ public sealed class ClientConfig
     public int JitterBufferMaxMs { get; set; } = 2000;
     public int BellFadeMs { get; set; } = 75;
 
+    /// Groups this device belongs to, if the installer learned them (optional).
+    /// PROTOCOL v1 gives the device no group list (see report: protocol ambiguity),
+    /// so group-scoped occurrences cannot be matched locally until the server tells
+    /// the device its groups. Empty by default: only "all" and "devices" scopes match.
+    public List<long> DeviceGroups { get; set; } = [];
+
     public static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,

@@ -39,7 +39,8 @@ public static class PipeProtocol
 
     public static string SerializeLine(string type, object payload)
     {
-        var line = JsonSerializer.Serialize(new PipeMessage(type, payload), Json);
+        var element = JsonSerializer.SerializeToElement(payload, Json);
+        var line = JsonSerializer.Serialize(new PipeMessage(type, element), Json);
         if (System.Text.Encoding.UTF8.GetByteCount(line) > MaxLineBytes)
             throw new InvalidOperationException($"pipe line exceeds {MaxLineBytes} bytes");
         return line;

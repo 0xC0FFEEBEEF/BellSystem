@@ -20,7 +20,7 @@ command -v git cmake make g++ python3 || true
 systemctl --version 2>&1 | head -1 || echo "NO systemd"
 sudo -n true 2>&1 && echo "HAS passwordless sudo" || echo "NO passwordless sudo"
 
-step clone    git clone --depth 1 https://github.com/ggml-org/whisper.cpp .probe-whisper
+step clone    bash -c 'if [ -d .probe-whisper/.git ]; then echo "clone reused from previous job"; else git clone --depth 1 https://github.com/ggml-org/whisper.cpp .probe-whisper; fi'
 step build    bash -c 'cd .probe-whisper && cmake -B build -DCMAKE_BUILD_TYPE=Release > cmake-configure.log 2>&1 && cmake --build build -j8 --target whisper-cli whisper-server 2>&1 | tail -3 && ls -l build/bin/'
 
 step model    bash -c 'mkdir -p .probe-whisper/models && curl -sSL -o .probe-whisper/models/ggml-small.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin'
@@ -32,8 +32,8 @@ step synth    bash -c 'echo "The first school bell rings at eight thirty in the 
 step synth_ok bash -c 'ls -l probe.wav && [ $(stat -c%s probe.wav) -gt 10000 ]'
 
 if [ $fail -eq 0 ]; then
-  step transcribe bash -c '.probe-whisper/build/bin/whisper-cli -m .probe-whisper/models/ggml-small.bin -f probe.wav -l en -t 8 -ow'
-  step verify_text bash -c 'grep -iE "bell|thirty|morning" probe.wav.txt'
+  step transcribe bash -c '.probe-whisper/build/bin/whisper-cli -m .probe-whisper/models/ggml-small.bin -l en -t 8 -otxt -of probe probe.wav'
+  step verify_text bash -c 'grep -iE "bell|thirty|morning" probe.txt'
 else
   echo "===== transcribe skipped: earlier step failed"
   fail=1; summary+="FAIL  transcribe (skipped)"$'\n'
@@ -41,7 +41,7 @@ fi
 
 # carry the useful artifacts back (dist/ is gitignored -> not re-uploaded by later jobs)
 if [ $fail -eq 0 ]; then
-  step collect bash -c 'mkdir -p dist/whisper && cp .probe-whisper/build/bin/whisper-cli dist/whisper/whisper-cli && cp .probe-whisper/build/bin/whisper-server dist/whisper/whisper-server && cp .probe-whisper/models/ggml-small.bin dist/whisper/ggml-small.bin && cp probe.wav dist/whisper/probe.wav && cp probe.wav.txt dist/whisper/probe.txt'
+  step collect bash -c 'mkdir -p dist/whisper && cp .probe-whisper/build/bin/whisper-cli .probe-whisper/build/bin/whisper-server .probe-whisper/build/bin/libggml*.so* .probe-whisper/build/bin/libwhisper.so* dist/whisper/ && cp .probe-whisper/models/ggml-small.bin dist/whisper/ggml-small.bin && cp probe.wav dist/whisper/probe.wav && cp probe.txt dist/whisper/probe.txt'
 fi
 
 printf '\n===== summary\n%s' "$summary"

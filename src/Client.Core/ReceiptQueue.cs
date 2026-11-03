@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using SchoolBell.Contracts;
 
 namespace SchoolBell.Client.Core;

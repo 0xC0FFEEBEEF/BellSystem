@@ -34,7 +34,6 @@ public sealed class ControlSession : IAsyncDisposable
     {
         var session = new ControlSession(cfg, time, log);
         session._ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(Protocol.HeartbeatSeconds);
-        session._ws.Options.MultiplierPingLimit = 4; // answers server pings (pong) automatically
 
         using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, connectTimeout.Token);

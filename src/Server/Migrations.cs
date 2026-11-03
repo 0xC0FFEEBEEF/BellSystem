@@ -180,5 +180,101 @@ public static class Migrations
           PRIMARY KEY(policy_id, device_id)
         );
         """,
+
+        // 4: milestone S2 — announcements, talk leases, audience snapshots, delivery results,
+        //    media tokens, transcripts + durable transcription queue
+        """
+        CREATE TABLE announcements(
+          announcement_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL CHECK(kind IN ('live','recorded')),
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','ended')),
+          created_by TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          started_at INTEGER,
+          window_closes_at INTEGER,
+          ended_at INTEGER,
+          ended_by TEXT,
+          max_duration_s INTEGER NOT NULL,
+          offer_expires_at INTEGER NOT NULL,
+          chime INTEGER NOT NULL DEFAULT 0,
+          target_json TEXT NOT NULL,
+          target_label TEXT NOT NULL,
+          audience_snapshot_id TEXT NOT NULL,
+          lease_id TEXT,
+          source_label TEXT NOT NULL,
+          recording_path TEXT,
+          recording_sha256 TEXT,
+          recording_bytes INTEGER,
+          recording_duration_ms INTEGER,
+          recording_sample_rate INTEGER,
+          frames_sent INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX idx_announcements_created ON announcements(created_at DESC);
+        CREATE INDEX idx_announcements_status ON announcements(status, kind);
+        CREATE TABLE announcement_devices(
+          announcement_id TEXT NOT NULL REFERENCES announcements(announcement_id) ON DELETE CASCADE,
+          device_id TEXT NOT NULL,
+          snapshot_id TEXT NOT NULL,
+          label TEXT NOT NULL,
+          PRIMARY KEY(announcement_id, device_id)
+        );
+        CREATE TABLE talk_leases(
+          lease_id TEXT PRIMARY KEY,
+          username TEXT NOT NULL,
+          target_json TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          renew_interval_s INTEGER NOT NULL,
+          renew_deadline INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','released','expired')),
+          ended_reason TEXT,
+          announcement_id TEXT
+        );
+        CREATE INDEX idx_leases_status ON talk_leases(status, expires_at);
+        CREATE TABLE media_tokens(
+          announcement_id TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          token_hash TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          issued_at INTEGER NOT NULL,
+          used INTEGER NOT NULL DEFAULT 0,
+          used_at INTEGER,
+          PRIMARY KEY(announcement_id, device_id)
+        );
+        CREATE TABLE delivery_results(
+          announcement_id TEXT NOT NULL REFERENCES announcements(announcement_id) ON DELETE CASCADE,
+          device_id TEXT NOT NULL,
+          state TEXT NOT NULL,
+          error_code TEXT,
+          source TEXT NOT NULL DEFAULT 'server',
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(announcement_id, device_id, state)
+        );
+        CREATE INDEX idx_delivery_announcement ON delivery_results(announcement_id);
+        CREATE INDEX idx_delivery_device ON delivery_results(device_id);
+        CREATE TABLE transcripts(
+          announcement_id TEXT PRIMARY KEY REFERENCES announcements(announcement_id) ON DELETE CASCADE,
+          transcript_original TEXT,
+          transcript_current TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','failed','completed')),
+          engine TEXT,
+          corrected_by TEXT,
+          corrected_at INTEGER,
+          purged INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE transcript_jobs(
+          job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          announcement_id TEXT NOT NULL REFERENCES announcements(announcement_id) ON DELETE CASCADE,
+          status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','completed','failed')),
+          attempts INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 5,
+          last_error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_transcript_jobs_status ON transcript_jobs(status, job_id);
+        """,
     ];
 }
