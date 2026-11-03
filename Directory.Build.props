@@ -4,6 +4,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Reproducible restores: every project commits packages.lock.json; release builds restore in locked mode. -->
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- fixed RID set so lock files are identical for builds, tests and both publish targets -->
+    <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
     <RestoreLockedMode Condition="'$(ContinuousIntegrationBuild)' == 'true'">true</RestoreLockedMode>
     <Version Condition="'$(Version)' == ''">0.9.0</Version>
     <Company>SchoolBell pilot</Company>
