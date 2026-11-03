@@ -249,6 +249,78 @@ public sealed class TestApp : IDisposable
 
     public CurrentUser AdminUser() => new(1, "admin", "admin", [], true, "http-session");
 
+    /// Multipart upload with the session cookie and CSRF header.
+    public Task<HttpResponseMessage> Upload(string path, string field, string fileName, byte[] bytes,
+        (string Name, string Value)? extra = null, string method = "POST")
+    {
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(bytes), field, fileName);
+        if (extra is { } e) form.Add(new StringContent(e.Value), e.Name);
+        return SendMultipart(path, form, method);
+    }
+
+    public async Task<HttpResponseMessage> SendMultipart(string path, MultipartFormDataContent form, string method = "POST")
+    {
+        var req = new HttpRequestMessage(new HttpMethod(method), path) { Content = form };
+        var cookies = new List<string>();
+        if (_csrf is not null) cookies.Add($"sb_csrf={_csrf}");
+        if (_session is not null) cookies.Add($"sb_session={_session}");
+        if (cookies.Count > 0) req.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", cookies));
+        if (_csrf is not null) req.Headers.TryAddWithoutValidation("X-CSRF", _csrf);
+        var res = await _client.SendAsync(req);
+        CaptureCookies(res);
+        return res;
+    }
+
+    /// A second, independent office session against the same server (e.g. an operator).
+    public sealed class Session : IDisposable
+    {
+        private readonly HttpClient _c;
+        private string? _csrf, _session;
+        public Session(TestApp app) => _c = app.Factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = false });
+
+        public async Task LoginAs(string username, string password)
+        {
+            await Send("GET", "/api/auth/csrf", null);
+            var res = await Send("POST", "/api/auth/login", new { username, password });
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        }
+
+        public Task<HttpResponseMessage> Post(string path, object? body) => Send("POST", path, body);
+
+        public Task<HttpResponseMessage> Upload(string path, string field, string fileName, byte[] bytes)
+        {
+            var form = new MultipartFormDataContent();
+            form.Add(new ByteArrayContent(bytes), field, fileName);
+            return Send("POST", path, null, form);
+        }
+
+        private async Task<HttpResponseMessage> Send(string method, string path, object? body, HttpContent? content = null)
+        {
+            var req = new HttpRequestMessage(new HttpMethod(method), path);
+            var cookies = new List<string>();
+            if (_csrf is not null) cookies.Add($"sb_csrf={_csrf}");
+            if (_session is not null) cookies.Add($"sb_session={_session}");
+            if (cookies.Count > 0) req.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", cookies));
+            if (_csrf is not null) req.Headers.TryAddWithoutValidation("X-CSRF", _csrf);
+            if (content is not null) req.Content = content;
+            else if (body is not null)
+                req.Content = new StringContent(JsonSerializer.Serialize(body, UtilApiJson), Encoding.UTF8, "application/json");
+            var res = await _c.SendAsync(req);
+            if (res.Headers.TryGetValues("Set-Cookie", out var values))
+                foreach (var raw in values)
+                {
+                    var pair = raw.Split(';')[0]; var idx = pair.IndexOf('=');
+                    if (idx <= 0) continue;
+                    if (pair[..idx] == "sb_csrf") _csrf = pair[(idx + 1)..];
+                    if (pair[..idx] == "sb_session") _session = pair[(idx + 1)..] is { Length: > 0 } v ? v : null;
+                }
+            return res;
+        }
+
+        public void Dispose() => _c.Dispose();
+    }
+
     public Task<JsonElement> Json(HttpResponseMessage res) => res.Content.ReadAsJsonElement();
 
     public void Dispose()

@@ -11,13 +11,18 @@ mkdir -p "$SH/Deploy"; cp "$REPO/dist/windows/SchoolBellSetup.exe" "$SH/Deploy/"
 "$LAB/api" --out "$SH/Deploy/schoolbell-enroll.json" POST /api/admin/enrollment-file '{"label":"installer test","max_uses":3,"expires_hours":4}' >/dev/null
 
 echo "--- 1. remove the manual lab deployment (service, task, files, data, lab CA)"
-"$VX" --timeout 300 -c '
+"$VX" --timeout 600 -c '
+$u = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | ? DisplayName -eq "SchoolBell"
+if ($u -and (Test-Path ($u.UninstallString.Trim([char]34)))) { Start-Process ($u.UninstallString.Trim([char]34)) -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait; "  uninstalled a previous SchoolBell install" }
+elseif ($u) { Remove-Item $u.PSPath -Recurse -Force; "  removed a stale Apps entry" }
+Remove-Item HKLM:\Software\SchoolBell -Recurse -Force -ErrorAction SilentlyContinue
 Stop-Service SchoolBell -ErrorAction SilentlyContinue; sc.exe delete SchoolBell | Out-Null
 Unregister-ScheduledTask -TaskName SchoolBellCompanion -Confirm:$false -ErrorAction SilentlyContinue
 Get-Process SchoolBellCompanion -ErrorAction SilentlyContinue | Stop-Process -Force
 Remove-Item -Recurse -Force "C:\Program Files\SchoolBell","C:\ProgramData\SchoolBell" -ErrorAction SilentlyContinue
 Get-ChildItem Cert:\LocalMachine\Root | ? Subject -like "*Caddy Local Authority*" | Remove-Item
-New-Item -ItemType Directory -Force C:\Deploy | Out-Null; Copy-Item Z:\Deploy\* C:\Deploy\ -Force
+New-Item -ItemType Directory -Force C:\Deploy | Out-Null; robocopy Z:\Deploy C:\Deploy /R:10 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
+"  staged installer: " + (Test-Path C:\Deploy\SchoolBellSetup.exe) + " " + (Get-Item C:\Deploy\SchoolBellSetup.exe -ErrorAction SilentlyContinue).Length
 "  clean: service=" + [bool](Get-Service SchoolBell -ErrorAction SilentlyContinue) + " files=" + (Test-Path "C:\Program Files\SchoolBell") + " caddy CA trusted=" + [bool](Get-ChildItem Cert:\LocalMachine\Root | ? Subject -like "*Caddy*")'
 
 echo "--- 2. silent install: SchoolBellSetup.exe --silent --server 192.168.122.1:8443 --enrollment-file C:\Deploy\schoolbell-enroll.json --ca-file C:\Deploy\school-ca.cer"
@@ -65,4 +70,4 @@ Start-Sleep 5
 
 echo "--- 6. reinstall for further lab tests"
 "$LAB/api" --out "$SH/Deploy/schoolbell-enroll.json" POST /api/admin/enrollment-file '{"label":"installer test reinstall","max_uses":1,"expires_hours":4}' >/dev/null
-"$VX" --timeout 900 -c 'Copy-Item Z:\Deploy\schoolbell-enroll.json C:\Deploy\ -Force; $p = Start-Process C:\Deploy\SchoolBellSetup.exe -ArgumentList "--silent","--server","192.168.122.1:8443","--enrollment-file","C:\Deploy\schoolbell-enroll.json","--ca-file","C:\Deploy\school-ca.cer" -Wait -PassThru; "  reinstall exit code " + $p.ExitCode'
+"$VX" --timeout 900 -c 'robocopy Z:\Deploy C:\Deploy schoolbell-enroll.json /R:10 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null; $p = Start-Process C:\Deploy\SchoolBellSetup.exe -ArgumentList "--silent","--server","192.168.122.1:8443","--enrollment-file","C:\Deploy\schoolbell-enroll.json","--ca-file","C:\Deploy\school-ca.cer" -Wait -PassThru; "  reinstall exit code " + $p.ExitCode'

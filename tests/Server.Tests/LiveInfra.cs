@@ -223,6 +223,7 @@ public sealed class ControlClient : IAsyncDisposable
                 await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", CancellationToken.None);
         }
         catch (WebSocketException) { }
+        catch (ObjectDisposedException) { }   // TestHost socket already torn down by the server side
         _ws.Dispose();
         try { await _reader; } catch { }
     }
@@ -358,6 +359,7 @@ public sealed class MediaClient : IAsyncDisposable
                 await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "test done", CancellationToken.None);
         }
         catch (WebSocketException) { }
+        catch (ObjectDisposedException) { }   // TestHost socket already torn down by the server side
         _ws.Dispose();
         try { await _reader; } catch { }
     }

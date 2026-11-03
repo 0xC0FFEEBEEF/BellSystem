@@ -246,3 +246,63 @@ playback.
 `contracts/fixtures/*.json` carry representative messages of every type with the field set
 frozen; server and clients must round-trip them in tests. Binary fixture:
 `contracts/fixtures/frame_sbmf.bin` (one header + 320 samples).
+
+## 13. v1.1 additive extensions (same `v: 1` envelope)
+
+Older clients consume unknown server messages without effect (they are logged and the cursor
+advances). The server accepts `update.status` from devices; any other unknown device message still
+closes the connection. Fixtures: see `tests/Server.Tests` and `tests/Client.Tests` round-trips.
+
+### bell.ring (server → device) — "ring now"
+```json
+{ "v":1, "type":"bell.ring", "payload": { "ring_id":"ring-<hex>", "bell_name":"Bell (rung by the office)",
+  "sound": {"id":"std-bell","sha256":"…","url":"/api/sounds/std-bell?sha=…"}, "duration_s":0,
+  "volume_policy":"announcement", "issued_at":…, "expires_at":…, "requested_by":"office.user" } }
+```
+- Audience resolved and frozen server-side (`ring_results`), exactly like announcements.
+- The device claims `ring_id` in its durable ledger first (duplicates do nothing), records
+  `expired` if it arrives after `expires_at` (default issued + 15 s, `Protocol.ManualRingTtlSeconds`)
+  and `suppressed` during live speech. A sound not in the cached manifest is downloaded and
+  sha256-verified before use. Receipts reuse §8 with `occurrence_or_announcement_id = ring_id`.
+- An expired ring is never replayed from the outbox (the server marks offline devices `expired`).
+
+### device.settings (server → device)
+`{ settings_version, output_device|null, announcement_volume, volume_cap, groups:[…], room }`
+- Sent live after every resync and queued in the outbox when an administrator changes it.
+  `settings_version` is monotonic (Unix ms of the last change); devices ignore older versions.
+- `output_device: null` = Windows default output. A named output that is not present makes the
+  renderer report `missing_output` — it never silently falls back.
+- `groups` lets devices match group-scoped occurrences in the cached manifest offline.
+
+### history.item (server → device)
+`{ announcement_id, at, kind, source_label, schoolwide, transcript_status: pending|done|failed, text|null, corrected }`
+- Sent when an announcement ends and again when its transcript completes or is corrected.
+- `text` is present only for schoolwide announcements; targeted items carry no text (office-only).
+  Devices also drop targeted items when the console user changes.
+
+### update.offer (server → device) / update.status (device → server)
+```json
+{ "v":1, "type":"update.offer", "payload": { "version":"0.9.1", "artifact_path":"windows/SchoolBellSetup.exe",
+  "url":"/api/updates/client/0.9.1/SchoolBellSetup.exe?device=…&exp=…&sig=…", "bytes":…,
+  "release_manifest":"<exact release-manifest.json text>", "release_signature":"<base64 DER ECDSA P-256>",
+  "allow_downgrade":false, "not_before":… } }
+{ "v":1, "type":"update.status", "payload": { "version":"0.9.1",
+  "state":"received|downloading|verified|installing|installed|failed|rolled_back", "error":null, "at":… } }
+```
+- Trust comes only from the publisher key pinned at install (`release-signing.pub.pem`): the
+  signed manifest must verify, name `version`, and list `artifact_path` with the sha256/bytes of
+  the downloaded file. The download URL is a per-device HMAC link (24 h) — not a credential.
+- Devices install only in a quiet period (no live announcement, no bell within 2 minutes), after
+  `not_before` (staged batches). `update-runner.ps1` runs the installer, waits for the new service
+  to authenticate (`health.json`), and reinstalls the previous installer if it does not.
+
+### Release manifest (`release-manifest.json`, signed)
+`{ product, version, commit, created_at, files: { "<path>": { sha256, bytes } } }`, sorted keys,
+signature = base64(DER(ECDSA-P256-SHA256(file bytes))) in `release-manifest.json.sig`. Used by the
+server self-update (root updater re-verifies with `/etc/schoolbell/release-signing.pub.pem`) and by
+client updates (a second manifest inside the server bundle lists only the Windows installer).
+
+### Device status additions
+`device.status` gains optional `available_outputs` (speaker names, for the /admin chooser) and
+`renderer_owner` (`companion` | `service`). Renderer reasons now include `no_user_since_boot`
+(see TEST-RESULTS: session-0 audio before the first sign-in is silent on Windows 11 25H2).

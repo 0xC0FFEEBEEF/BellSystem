@@ -151,8 +151,10 @@ public static class ExtraEndpoints
             return Http.Json(new { ok = true, id, sha256 = sha, duration_ms = durationMs, publish_needed = fixedId is not null }, fixedId is null ? 201 : 200);
         }
 
-        app.MapPost("/api/sounds", (HttpContext ctx) => SaveSound(ctx, null));
-        app.MapPut("/api/sounds/{id}", (HttpContext ctx, string id) => SaveSound(ctx, id));
+        // block-bodied async lambdas: an expression lambda returning Task<IResult> would bind to the
+        // RequestDelegate overload and the result would be silently dropped (empty 200)
+        app.MapPost("/api/sounds", async (HttpContext ctx) => { return await SaveSound(ctx, null); });
+        app.MapPut("/api/sounds/{id}", async (HttpContext ctx, string id) => { return await SaveSound(ctx, id); });
 
         app.MapDelete("/api/sounds/{id}", (HttpContext ctx, string id) =>
         {
