@@ -14,7 +14,9 @@ cat > "$PS1" <<'EOF'
 $ErrorActionPreference = 'Stop'
 $w = 'C:\sbbuild'
 if (Test-Path $w) { Remove-Item -Recurse -Force $w }
-robocopy Z:\build $w /E /NFL /NDL /NJH /NJS /NP | Out-Null
+if (-not (Test-Path Z:\build)) { throw 'VM shared drive Z:\build is unavailable' }
+robocopy Z:\build $w /E /R:2 /W:2 /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { throw "Copying build files failed: $LASTEXITCODE" }
 $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 if (-not (Test-Path $iscc)) { throw 'Inno Setup 6 is not installed in the VM' }
 $args = @("/DMyAppVersion=@VER@", "/DStage=$w\stage\windows", "/O$w\out", "$w\install\windows\SchoolBellSetup.iss")

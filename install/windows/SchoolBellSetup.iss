@@ -62,6 +62,10 @@ Source: "update-runner.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "SchoolBellCompanion.task.xml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\release-signing.pub.pem"; DestDir: "{app}"; Flags: ignoreversion
 Source: "schoolbell.ico"; DestDir: "{app}"; Flags: ignoreversion
+#if DirExists(Stage + "\provisioning")
+Source: "{#Stage}\provisioning\schoolbell-enroll.json"; Flags: dontcopy
+Source: "{#Stage}\provisioning\school-ca.cer"; Flags: dontcopy
+#endif
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
@@ -122,6 +126,22 @@ begin
     '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ' + Quote(Script));
 end;
 
+function RunBounded(const Exe, Params: String; Seconds: Integer): Integer;
+var ScriptPath, SafeExe, SafeParams: String;
+begin
+  SafeExe := Exe; StringChangeEx(SafeExe, '''', '''''', True);
+  SafeParams := Params; StringChangeEx(SafeParams, '''', '''''', True);
+  ScriptPath := ExpandConstant('{tmp}\bounded.ps1');
+  SaveStringToFile(ScriptPath,
+    '$ErrorActionPreference = ''Stop''' + #13#10 +
+    '$p = Start-Process -FilePath ''' + SafeExe + ''' -ArgumentList ''' + SafeParams + ''' -PassThru -WindowStyle Hidden' + #13#10 +
+    'if (-not $p.WaitForExit(' + IntToStr(Seconds) + '000)) { taskkill /PID $p.Id /T /F | Out-Null; exit 124 }' + #13#10 +
+    '$p.WaitForExit(); exit $p.ExitCode' + #13#10, False);
+  Log('starting bounded process: ' + Exe);
+  Result := RunHidden(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + Quote(ScriptPath));
+end;
+
 function InitializeSetup(): Boolean;
 var Params, V, CopyPath: String; RC: Integer;
 begin
@@ -156,6 +176,18 @@ begin
   ServerUrl := Trim(ArgValue('server', 'SERVER'));
   EnrollmentFile := Trim(ArgValue('enrollment-file', 'ENROLLMENTFILE'));
   CaFile := Trim(ArgValue('ca-file', 'CAFILE'));
+#if DirExists(Stage + "\provisioning")
+  if EnrollmentFile = '' then
+  begin
+    ExtractTemporaryFile('schoolbell-enroll.json');
+    EnrollmentFile := ExpandConstant('{tmp}\schoolbell-enroll.json');
+  end;
+  if CaFile = '' then
+  begin
+    ExtractTemporaryFile('school-ca.cer');
+    CaFile := ExpandConstant('{tmp}\school-ca.cer');
+  end;
+#endif
   if (EnrollmentFile <> '') and not FileExists(EnrollmentFile) then
   begin
     Log('enrollment file not found: ' + EnrollmentFile);
@@ -253,7 +285,7 @@ begin
   if Enrolled() then begin Log('already enrolled; identity kept'); Exit; end;
   Args := '--token-file ' + Quote(EnrollmentFile) + ' --device-name ' + Quote(GetComputerNameString()) + ' --out ' + Quote(ConfigPath());
   if ServerUrl <> '' then Args := '--server ' + Quote(ServerUrl) + ' ' + Args;
-  RC := RunHidden(ExpandConstant('{app}\EnrollTool.exe'), Args);
+  RC := RunBounded(ExpandConstant('{app}\EnrollTool.exe'), Args, 120);
   if RC <> 0 then
   begin
     Log('enrollment failed with exit code ' + IntToStr(RC) + ' (2 usage, 3 server unreachable or TLS untrusted, 4 rejected)');
@@ -289,8 +321,8 @@ begin
   end;
 
   { first launch after new files can exceed the 30 s service start timeout while antivirus scans them }
-  RunHidden(App + '\SchoolBellService.exe', '--warmup');
-  RunHidden(App + '\SchoolBellCompanion.exe', '--warmup');
+  RunBounded(App + '\SchoolBellService.exe', '--warmup', 120);
+  RunBounded(App + '\SchoolBellCompanion.exe', '--warmup', 120);
 
   RC := RunHidden(ExpandConstant('{sys}\sc.exe'), 'create {#ServiceName} binPath= ' + Quote(App + '\SchoolBellService.exe') + ' start= auto DisplayName= "SchoolBell"');
   if RC = 1073 then RunHidden(ExpandConstant('{sys}\sc.exe'), 'config {#ServiceName} binPath= ' + Quote(App + '\SchoolBellService.exe') + ' start= auto');
