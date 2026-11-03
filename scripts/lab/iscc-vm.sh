@@ -16,7 +16,8 @@ robocopy Z:\\build \$w /E /NFL /NDL /NJH /NJS /NP | Out-Null
 \$iscc = 'C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe'
 if (-not (Test-Path \$iscc)) { throw 'Inno Setup 6 is not installed in the VM' }
 Set-Location \$w\\install\\windows
-& \$iscc /Q /DMyAppVersion=$VER /DStage=\$w\\stage\\windows /O\$w\\out SchoolBellSetup.iss *> \$w\\iscc.log
+\$ErrorActionPreference = 'Continue'
+cmd /c \"\"\$iscc\" /DMyAppVersion=$VER /DStage=\$w\\stage\\windows /O\$w\\out SchoolBellSetup.iss > \$w\\iscc.log 2>&1\"
 \$rc = \$LASTEXITCODE
 Copy-Item \$w\\iscc.log Z:\\build\\iscc.log -Force
 if (\$rc -ne 0) { Get-Content \$w\\iscc.log -Tail 30; exit \$rc }

@@ -215,7 +215,7 @@ begin
 end;
 
 procedure InstallCa();
-var Result: AnsiString; Thumb: String;
+var Content: AnsiString; Thumb: String;
 begin
   if CaFile = '' then Exit;
   { add to LocalMachine\Root; remember the thumbprint only if WE added it (uninstall removes only ours) }
@@ -223,9 +223,9 @@ begin
     'if (Test-Path (''Cert:\LocalMachine\Root\'' + $c.Thumbprint)) { ''existing:'' + $c.Thumbprint } ' +
     'else { Import-Certificate -FilePath ''' + CaFile + ''' -CertStoreLocation Cert:\LocalMachine\Root | Out-Null; ''added:'' + $c.Thumbprint } ' +
     '| Out-File -Encoding ascii ''' + ExpandConstant('{tmp}\ca.txt') + '''');
-  if LoadStringFromFile(ExpandConstant('{tmp}\ca.txt'), Result) then
+  if LoadStringFromFile(ExpandConstant('{tmp}\ca.txt'), Content) then
   begin
-    Thumb := Trim(String(Result));
+    Thumb := Trim(String(Content));
     Log('school CA: ' + Thumb);
     if Copy(Thumb, 1, 6) = 'added:' then
       RegWriteStringValue(HKLM, 'Software\SchoolBell', 'InstalledCaThumbprint', Copy(Thumb, 7, MaxInt));
