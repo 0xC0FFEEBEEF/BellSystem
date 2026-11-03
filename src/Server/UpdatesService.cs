@@ -371,7 +371,9 @@ public sealed class ServerUpdateService
         try
         {
             var http = _httpFactory.CreateClient("github");
-            using var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases/latest");
+            if (!_cfg.UpdateApiBase.StartsWith("https://", StringComparison.Ordinal))
+                throw new InvalidOperationException("SchoolBell:UpdateApiBase must be an https:// URL");
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{_cfg.UpdateApiBase}/repos/{Repo}/releases/latest");
             req.Headers.UserAgent.Add(new ProductInfoHeaderValue("SchoolBell-Server", Util.ServerVersion));
             req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
             using var resp = await http.SendAsync(req, ct);

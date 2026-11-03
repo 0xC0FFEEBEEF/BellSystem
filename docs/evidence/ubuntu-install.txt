@@ -1,3 +1,5 @@
+=== Ubuntu 24.04.5 (systemd container, rootless podman --privileged) fresh install 2026-11-03T17:49:38Z
+$ sudo bash install.sh --hostname bells.test --hostname localhost --timezone America/Chicago
 == SchoolBell 0.9.0 (new install)
 == service accounts and directories
 == installing release 0.9.0
@@ -6,37 +8,25 @@
 == health check
 
 == SchoolBell 0.9.0 is running.
-   Office:   https://bells.test/  https://localhost/     (HTTPS check from this server: no)
-   Services: systemctl status schoolbell schoolbell-caddy   ·  logs: journalctl -u schoolbell -f
-   Windows clients must trust: /etc/schoolbell/school-ca.cer   (give it to SchoolBellSetup.exe --ca-file)
-   First sign-in: open the office address, choose 'First-time setup' and enter SETUP CODE: <redacted>
-   Then in /admin: check the school timezone, create an enrollment file, build and publish schedules.
-   Windows: SchoolBellSetup.exe --silent --server bells.test --enrollment-file schoolbell-enroll.json --ca-file school-ca.cer
-
-real	0m2.087s
-user	0m0.126s
-sys	0m0.293s
-== health check
-
-== SchoolBell 0.9.0 is running.
-   Office:   https://bells.test/  https://localhost/     (HTTPS check from this server: no)
-   Services: systemctl status schoolbell schoolbell-caddy   ·  logs: journalctl -u schoolbell -f
-   Windows clients must trust: /etc/schoolbell/school-ca.cer   (give it to SchoolBellSetup.exe --ca-file)
-   First sign-in: open the office address, choose 'First-time setup' and enter SETUP CODE: <redacted>
-   Then in /admin: check the school timezone, create an enrollment file, build and publish schedules.
-   Windows: SchoolBellSetup.exe --silent --server bells.test --enrollment-file schoolbell-enroll.json --ca-file school-ca.cer
-active
-active
-
-
-== SchoolBell 0.9.0 is running.
-   Office:   https://bells.test/  https://localhost/     (HTTPS check from this server: no)
+   Office:   https://bells.test/  https://localhost/     (HTTPS check from this server: yes)
    Services: systemctl status schoolbell schoolbell-caddy   ·  logs: journalctl -u schoolbell -f
    Windows clients must trust: /etc/schoolbell/school-ca.cer   (give it to SchoolBellSetup.exe --ca-file)
    First sign-in: open the office address, choose 'First-time setup' and enter setup code <redacted>
    Then in /admin: check the school timezone, create an enrollment file, build and publish schedules.
    Windows: SchoolBellSetup.exe --silent --server bells.test --enrollment-file schoolbell-enroll.json --ca-file school-ca.cer
-active
-active
-755 root:root /etc/schoolbell
 
+real	0m2.125s
+user	0m0.125s
+sys	0m0.309s
+active
+active
+active
+releases/0.9.0
+755 root:root /etc/schoolbell
+640 root:schoolbell /etc/schoolbell/env
+750 schoolbell:schoolbell /var/lib/schoolbell
+700 schoolbell-proxy:schoolbell-proxy /var/lib/schoolbell-proxy
+SchoolBell__SchoolTz=America/Chicago
+SchoolBell__AllowedWsOrigins__0=https://bells.test
+SchoolBell__AllowedWsOrigins__1=https://localhost
+from host via HTTPS: {"status":"ok","version":"0.9.0"}

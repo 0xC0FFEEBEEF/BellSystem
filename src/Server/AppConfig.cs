@@ -18,6 +18,7 @@ public sealed class ServerConfig
     public string? TestSetupCode { get; set; }          // test-only deterministic bootstrap code
     public string ReleaseKeyPath { get; set; } = "/etc/schoolbell/release-signing.pub.pem";
     public string UpdateRepo { get; set; } = "0xC0FFEEBEEF/BellSystem";
+    public string UpdateApiBase { get; set; } = "https://api.github.com";   // GitHub REST API (overridable for tests/mirrors)
     public string WhisperUrl { get; set; } = "http://127.0.0.1:8178";
     public string WebRoot { get; set; } = "";            // built office UI (wwwroot); "" = next to the binary
 
@@ -41,6 +42,7 @@ public sealed class ServerConfig
             TestSetupCode = s["TestSetupCode"],
             ReleaseKeyPath = s["ReleaseKeyPath"] ?? "/etc/schoolbell/release-signing.pub.pem",
             UpdateRepo = s["UpdateRepo"] ?? "0xC0FFEEBEEF/BellSystem",
+            UpdateApiBase = (s["UpdateApiBase"] ?? "https://api.github.com").TrimEnd('/'),
             WhisperUrl = s["WhisperUrl"] ?? "http://127.0.0.1:8178",
             WebRoot = s["WebRoot"] ?? "",
         };
