@@ -21,6 +21,6 @@ TP=$(openssl rand -hex 8)
 sleep 40; agent; conn; sleep 5
 "$VX" -c '"  sessions: " + ((query user 2>&1) -join " ")'
 probe "no-user boot"
-"$VX" -c "net user User '' | Out-Null; Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' AutoAdminLogon '1'; '  restored blank password + auto sign-in'; shutdown /r /t 1"
+"$VX" -c "Set-LocalUser -Name User -Password (New-Object System.Security.SecureString); Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' AutoAdminLogon '1'; '  restored blank password + auto sign-in'; shutdown /r /t 1"
 sleep 40; agent; conn
 } 2>&1 | tee -a "$LOG"

@@ -172,6 +172,24 @@ public class ExtensionTests
     }
 
     [Fact]
+    public async Task Reenrolling_a_computer_keeps_its_record_but_drops_its_old_outbox()
+    {
+        using var app = new TestApp();
+        await app.LoginAsAdmin();
+        var first = await LiveTest.EnrollAsync(app, "room-105");
+        var rec = await app.Upload("/api/announcements/recorded", "file", "a.wav", LiveTest.BuildWav(16000, 16000), ("target", "{\"all\":true}"));
+        Assert.Equal(HttpStatusCode.Created, rec.StatusCode);
+        var db = LiveTest.DbOf(app);
+        int Queued(string id) { using var c = db.Open(); return c.ScalarInt("SELECT COUNT(*) FROM outbox WHERE device_id = $d", ("$d", id)); }
+        Assert.True(Queued(first.Id) > 0);
+
+        var again = await LiveTest.EnrollAsync(app, "room-105");      // reinstall: same computer name
+        Assert.Equal(first.Id, again.Id);                              // groups/room/settings are kept
+        Assert.NotEqual(first.Secret, again.Secret);                   // the old install's credential is dead
+        Assert.Equal(0, Queued(again.Id));                             // and nothing old is replayed to the new install
+    }
+
+    [Fact]
     public async Task Health_reports_the_build_version_without_authentication()
     {
         using var app = new TestApp();

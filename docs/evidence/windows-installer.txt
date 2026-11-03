@@ -31,3 +31,12 @@
   after: program files=False programdata=False user logs=False companion running=False
   after: school CA still trusted=False registry key=False event source=False
 --- 6. reinstall for further lab tests
+  reinstall exit code 0
+sessions: No User exists for *
+AutoAdminLogon=1 DefaultUserName=User DefaultPassword set=True
+Apps entry: SchoolBell | version 0.9.0 | publisher SchoolBell pilot | icon C:\Program Files\SchoolBell\SchoolBellCompanion.exe | size KB 128182
+service: Running, Auto, LocalSystem
+--- 7. bell on the installer-installed client after sign-in
+  server sees: User (WIN11-VM) playback_failed client 0.9.0 renderer service
+  format: 44100 Hz, 2 ch, 16-bit; analysed 6.22s from byte 22757376; loudest window -5.4 dBFS
+    audible at   129.570s for 3.000s, peak -5.4 dBFS

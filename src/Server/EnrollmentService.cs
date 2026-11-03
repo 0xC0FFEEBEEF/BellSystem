@@ -132,9 +132,19 @@ public sealed class EnrollmentService
                 if (r.GetInt32(1) == 1)
                     return new(403, "revoked");
                 deviceId = r.GetString(0);
+                r.Close();
                 secret = Util.RandomHex(32);
-                conn.Run(tx, "UPDATE devices SET secret = $s, status = 'active', last_seen = $t WHERE device_id = $d",
-                    ("$s", secret), ("$t", NowMs), ("$d", deviceId));
+                // Re-enrollment = a reinstalled computer (same name): it keeps its record (groups,
+                // room, speaker settings) but starts clean. Its old outbox is dropped — the new
+                // install has an empty ledger and must not replay old announcements or rings — and
+                // its schedule acceptance resets so the current manifest is pushed again.
+                conn.Run(tx, "DELETE FROM outbox WHERE device_id = $d", ("$d", deviceId));
+                conn.Run(tx, """
+                    UPDATE devices SET secret = $s, status = 'active', last_seen = $t, last_cursor = NULL,
+                           accepted_revision = 0, cache_revision = 0, cache_expires_at = NULL
+                    WHERE device_id = $d
+                    """, ("$s", secret), ("$t", NowMs), ("$d", deviceId));
+                Audit.Add(conn, tx, "enroll", "device.reenrolled", $"device_id={deviceId} name={deviceName} outbox_cleared=1");
             }
             else
             {
