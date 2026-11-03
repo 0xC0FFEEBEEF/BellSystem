@@ -185,6 +185,8 @@ public sealed partial class AnnouncementsService
             $"announcement={announcementId} chars={text.Length} original_preserved=1");
         _log.LogInformation("transcript for {AnnouncementId} corrected by {User} (original version preserved)",
             announcementId, user.Username);
+        conn.Dispose();
+        PushHistory(announcementId);
         return changed > 0 ? new(200, null) : new(500, "correction was not stored");
     }
 

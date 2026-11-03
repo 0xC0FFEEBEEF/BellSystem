@@ -68,7 +68,7 @@ public sealed class ActiveUserProvider : IIdentityProvider
             if (!DuplicateTokenEx(token, 0, IntPtr.Zero, 0 /*SecurityImpersonation*/, 1 /*TokenPrimary*/, out dup))
                 return null;
             using var identity = new WindowsIdentity(dup);
-            return identity.User.Value;
+            return identity.User?.Value;
         }
         finally
         {
@@ -85,7 +85,7 @@ public sealed class ActiveUserProvider : IIdentityProvider
             e.Message);
     }
 
-    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll")]
     private static extern uint WTSGetActiveConsoleSessionId();
 
     [DllImport("wtsapi32.dll", SetLastError = true)]

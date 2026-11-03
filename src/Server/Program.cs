@@ -47,7 +47,15 @@ builder.Services.AddSingleton<MediaRouter>();
 builder.Services.AddSingleton<TalkLeaseService>();
 builder.Services.AddSingleton<AnnouncementsService>();
 builder.Services.AddSingleton<LiveWsHub>();
-builder.Services.AddSingleton<ITranscriptionEngine, NoTranscriptionEngine>();   // S3 wires whisper.cpp
+builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("github", c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddHttpClient("whisper", c => c.Timeout = TimeSpan.FromMinutes(5));
+builder.Services.AddSingleton<ITranscriptionEngine, WhisperCppEngine>();   // loopback whisper.cpp server
+builder.Services.AddSingleton<DeviceSettingsService>();
+builder.Services.AddSingleton<ReleaseTrust>();
+builder.Services.AddSingleton<ClientUpdateService>();
+builder.Services.AddSingleton<ServerUpdateService>();
+builder.Services.AddHostedService<UpdatesHost>();
 builder.Services.AddHostedService<AnnouncementSweeperHost>();
 builder.Services.AddHostedService<TranscriptionWorkerHost>();
 builder.Services.AddHostedService<RetentionWorkerHost>();
@@ -62,6 +70,35 @@ mediaRouter.OnFirstFrameSent = announcementsService.RecordStreamStarted;
 mediaRouter.OnQueueOverflow = announcementsService.RecordQueueOverflow;
 mediaRouter.OnStreamClosed = announcementsService.RecordMediaSocketClosed;
 
+// Office web UI (React build output). Served from WebRoot or wwwroot next to the binary;
+// unknown non-API paths fall back to index.html so /admin and other client routes deep-link.
+var cfgForUi = app.Services.GetRequiredService<ServerConfig>();
+var webRoot = cfgForUi.WebRoot is { Length: > 0 } wr ? wr : Path.Combine(AppContext.BaseDirectory, "wwwroot");
+if (!Directory.Exists(webRoot) && Util.FindUpwards(app.Environment.ContentRootPath, "web", "dist") is { } devDist) webRoot = devDist;
+var uiFiles = Directory.Exists(webRoot) ? new Microsoft.Extensions.FileProviders.PhysicalFileProvider(webRoot) : null;
+app.Use(async (ctx, next) =>
+{
+    // conservative security headers for the office UI
+    ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    ctx.Response.Headers["Referrer-Policy"] = "same-origin";
+    ctx.Response.Headers["X-Frame-Options"] = "DENY";
+    ctx.Response.Headers["Permissions-Policy"] = "microphone=(self), camera=(), geolocation=()";
+    await next();
+});
+if (uiFiles is not null)
+{
+    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = uiFiles });
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = uiFiles,
+        OnPrepareResponse = c =>
+        {
+            if (c.File.Name == "index.html") c.Context.Response.Headers.CacheControl = "no-cache";
+            else if (c.Context.Request.Path.StartsWithSegments("/assets")) c.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        },
+    });
+}
+
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(Protocol.HeartbeatSeconds), // ping every 10 s
@@ -75,18 +112,37 @@ ScheduleEndpoints.Map(app);
 AdminEndpoints.Map(app);
 DeviceEndpoints.Map(app);
 AnnouncementsEndpoints.Map(app);
+ExtraEndpoints.Map(app);
 
 app.Map("/ws/control", async (HttpContext ctx, ControlHub hub) => await hub.HandleAsync(ctx));
 // Office microphone (cookie session + Origin check + talk lease) and device media (single-use OTP).
 app.Map("/ws/mic", async (HttpContext ctx, LiveWsHub ws) => await ws.HandleMicAsync(ctx));
 app.Map("/ws/media", async (HttpContext ctx, LiveWsHub ws) => await ws.HandleMediaAsync(ctx));
 
-app.MapGet("/", () => Results.Json(new
+if (uiFiles is not null)
 {
-    server = "schoolbell",
-    version = Util.ServerVersion,
-    status = "api only (office UI arrives with the web milestone); milestone S2 live: talk lease, live announcements, media relay, recordings, history",
-}, Util.ApiJson));
+    app.MapFallback(async ctx =>
+    {
+        if (ctx.Request.Path.StartsWithSegments("/api") || ctx.Request.Path.StartsWithSegments("/ws"))
+        {
+            ctx.Response.StatusCode = 404;
+            await ctx.Response.WriteAsJsonAsync(new { detail = "no such endpoint" }, Util.ApiJson);
+            return;
+        }
+        ctx.Response.ContentType = "text/html; charset=utf-8";
+        ctx.Response.Headers.CacheControl = "no-cache";
+        await ctx.Response.SendFileAsync(uiFiles.GetFileInfo("index.html"));
+    });
+}
+else
+{
+    app.MapGet("/", () => Results.Json(new
+    {
+        server = "schoolbell",
+        version = Util.ServerVersion,
+        status = "API running; the office UI build (web/dist or wwwroot) was not found",
+    }, Util.ApiJson));
+}
 
 app.Run();
 

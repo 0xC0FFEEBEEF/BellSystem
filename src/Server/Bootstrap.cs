@@ -18,6 +18,8 @@ public sealed class Bootstrap
     }
     public void Run(string? contentRoot)
     {
+        Directory.CreateDirectory(_cfg.DataDir);
+        Backup.ApplyPendingRestore(_cfg, _log);   // a staged restore replaces the database before it opens
         _db.Init();
         var trustPin = TrustPin.Get(_db);                       // first-start creation, stored in settings
         SigningKey.Load(_cfg, trustPin);                        // DataDir/keys/manifest.key, 0600

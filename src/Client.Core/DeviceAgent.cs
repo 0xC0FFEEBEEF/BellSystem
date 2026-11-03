@@ -19,6 +19,7 @@ public sealed partial class DeviceAgent
     private readonly IRendererProvider _renderer;
     private readonly IIdentityProvider _identity;
     private readonly IKeepAwakeApplier _keepAwake;
+    private readonly IClientUpdater? _updater;
     private readonly byte[] _verifyKey;
 
     private readonly Channel<byte> _bellWake = Channel.CreateUnbounded<byte>();
@@ -34,6 +35,8 @@ public sealed partial class DeviceAgent
     public KeepAwakePolicyStore KeepAwakePolicies { get; }
     public BellScheduler Scheduler { get; }
     public StatusComposer Status { get; }
+    public DeviceSettingsStore Settings { get; }
+    public HistoryStore History { get; }
 
     private volatile bool _statusDirty;
     private PlaybackResult? _lastPlayback;
@@ -41,10 +44,16 @@ public sealed partial class DeviceAgent
 
     public event Action<ScheduleManifestPayload>? ManifestAccepted;
     public event Action? StateChanged;
+    public event Action<DeviceSettingsPayload>? SettingsChanged;
+    public event Action? HistoryChanged;
+    public event Action<bool>? ConnectionChanged;
+
+    public bool Connected { get; private set; }
+    public string ServerUrl => _cfg.ServerUrl;
 
     public DeviceAgent(ClientConfig cfg, TimeProvider time, HttpClient http, ILogger log,
         IBellPlayer bellPlayer, IAnnouncementPipeline pipeline, IRendererProvider renderer,
-        IIdentityProvider identity, IKeepAwakeApplier keepAwake)
+        IIdentityProvider identity, IKeepAwakeApplier keepAwake, IClientUpdater? updater = null)
     {
         _cfg = cfg; _time = time; _http = http; _log = log;
         if (_http.BaseAddress is null)
@@ -53,7 +62,7 @@ public sealed partial class DeviceAgent
             _http.BaseAddress = new Uri($"{u.Scheme}://{u.Authority}"); // sounds use relative urls
         }
         _bellPlayer = bellPlayer; _pipeline = pipeline; _renderer = renderer;
-        _identity = identity; _keepAwake = keepAwake;
+        _identity = identity; _keepAwake = keepAwake; _updater = updater;
         _verifyKey = ManifestSigner.DeriveDeviceVerifyKey(cfg.ServerTrustPin);
 
         Clock = new BellClock(time);
@@ -65,6 +74,23 @@ public sealed partial class DeviceAgent
         KeepAwakePolicies = new KeepAwakePolicyStore(cfg.DataDir);
         Scheduler = new BellScheduler(Ledger, cfg.MissedBellGraceSeconds);
         Status = new StatusComposer(Clock, Manifests);
+        Settings = new DeviceSettingsStore(cfg.DataDir);
+        History = new HistoryStore(cfg.DataDir);
+    }
+
+    /// Groups from the server's device.settings plus any the installer wrote into config.
+    public IReadOnlyCollection<long> EffectiveGroups =>
+        (Settings.Current?.Groups ?? []).Concat(_cfg.DeviceGroups).Distinct().ToList();
+
+    /// Announcement level in percent: server setting (capped) or the config default.
+    public int AnnouncementVolume
+    {
+        get
+        {
+            var s = Settings.Current;
+            if (s is null) return _cfg.AnnouncementVolume;
+            return Math.Clamp(Math.Min(s.AnnouncementVolume, s.VolumeCap <= 0 ? 100 : s.VolumeCap), 0, 100);
+        }
     }
 
     public bool StaleCache
@@ -94,7 +120,7 @@ public sealed partial class DeviceAgent
         var now = Clock.NowMs();
         return m.Occurrences
             .Where(o => o.StartsAt > now && !Ledger.Has(o.OccurrenceId) &&
-                        o.Target.Matches(_cfg.DeviceId, _cfg.DeviceGroups))
+                        o.Target.Matches(_cfg.DeviceId, EffectiveGroups))
             .OrderBy(o => o.StartsAt)
             .FirstOrDefault();
     }
@@ -104,6 +130,8 @@ public sealed partial class DeviceAgent
     public async Task RunAsync(CancellationToken ct)
     {
         RecoverUnknownClaims();
+        if (_updater?.TakeCompletedResult() is { } finished)
+            lock (_pendingUpdateStatuses) _pendingUpdateStatuses.Add(finished);
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var bellLoop = Task.Run(() => BellLoopAsync(linked.Token), linked.Token);
@@ -173,6 +201,11 @@ public sealed partial class DeviceAgent
             throw;
         }
 
+        Connected = true;
+        ConnectionChanged?.Invoke(true);
+        _currentSession = session;
+        await FlushUpdateStatusesAsync(session, cts.Token);
+
         var receiveTask = ReceiveLoopAsync(session, cts.Token);
         var flushTask = ReceiptFlushLoopAsync(session, cts.Token);
         var statusTask = StatusLoopAsync(session, cts.Token);
@@ -185,6 +218,9 @@ public sealed partial class DeviceAgent
         catch (Exception e) { receiveError = e; }
 
         cts.Cancel();
+        _currentSession = null;
+        Connected = false;
+        ConnectionChanged?.Invoke(false);
         await CloseOpenAnnouncementsAsync(ct); // restore volume immediately on any session end
         var stableMs = (long)_time.GetElapsedTime(connectedStamp).TotalMilliseconds;
         await session.CloseAsync(WebSocketCloseStatus.NormalClosure, "session end");
@@ -226,7 +262,7 @@ public sealed partial class DeviceAgent
             {
                 var now = Clock.NowMs();
                 var ev = Scheduler.Evaluate(Manifests.Current, now, LiveAnnouncementActive,
-                    _cfg.DeviceId, _cfg.DeviceGroups);
+                    _cfg.DeviceId, EffectiveGroups);
 
                 if (ev.StaleCache)
                 {
@@ -298,7 +334,7 @@ public sealed partial class DeviceAgent
                 }
                 var req = new PipeBellPlay(decision.OccurrenceId, occ.BellName, wav, occ.DurationS,
                     _cfg.BellFadeMs, occ.VolumePolicy,
-                    occ.VolumePolicy == "announcement" ? _cfg.AnnouncementVolume : 0);
+                    occ.VolumePolicy == "announcement" ? AnnouncementVolume : 0);
                 BellPlayOutcome outcome;
                 try { outcome = await _bellPlayer.PlayAsync(req, ct); }
                 catch (OperationCanceledException) { throw; }
@@ -389,7 +425,8 @@ public sealed partial class DeviceAgent
         var facts = new StatusFacts(
             Environment.MachineName, user, sid,
             _renderer.GetRenderer(), _renderer.GetVolumes(),
-            kaState, _keepAwake.Applied, _lastPlayback, _renderer.CompanionState);
+            kaState, _keepAwake.Applied, _lastPlayback, _renderer.CompanionState,
+            _renderer.AvailableOutputs.Take(16).ToList(), _renderer.RendererOwner);
         return Status.Build(facts, CacheExpiresAt);
     }
 

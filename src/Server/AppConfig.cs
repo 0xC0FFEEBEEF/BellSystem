@@ -16,6 +16,10 @@ public sealed class ServerConfig
     public int StaleAfterSeconds { get; set; } = 30;
     public string[] AllowedWsOrigins { get; set; } = []; // browser WS origin allow-list
     public string? TestSetupCode { get; set; }          // test-only deterministic bootstrap code
+    public string ReleaseKeyPath { get; set; } = "/etc/schoolbell/release-signing.pub.pem";
+    public string UpdateRepo { get; set; } = "0xC0FFEEBEEF/BellSystem";
+    public string WhisperUrl { get; set; } = "http://127.0.0.1:8178";
+    public string WebRoot { get; set; } = "";            // built office UI (wwwroot); "" = next to the binary
 
     public string DbPath => Path.Combine(DataDir, "schoolbell.db");
     public string SoundsDir => Path.Combine(DataDir, "sounds");
@@ -35,6 +39,10 @@ public sealed class ServerConfig
             OutboxCap = ParseInt(s["OutboxCap"], 500),
             StaleAfterSeconds = ParseInt(s["StaleAfterSeconds"], 30),
             TestSetupCode = s["TestSetupCode"],
+            ReleaseKeyPath = s["ReleaseKeyPath"] ?? "/etc/schoolbell/release-signing.pub.pem",
+            UpdateRepo = s["UpdateRepo"] ?? "0xC0FFEEBEEF/BellSystem",
+            WhisperUrl = s["WhisperUrl"] ?? "http://127.0.0.1:8178",
+            WebRoot = s["WebRoot"] ?? "",
         };
         var origins = s.GetSection("AllowedWsOrigins").Get<string[]>();
         if (origins is not null) c.AllowedWsOrigins = origins;

@@ -80,6 +80,13 @@ public sealed class JitterBuffer
         }
     }
 
+    /// After a pass-through Drain(): accept further frames (sequence state is kept, so
+    /// duplicates and stale frames are still rejected).
+    public void Reopen()
+    {
+        lock (_gate) _ended = false;
+    }
+
     private void TrimToMax()
     {
         // Hard bound: drop oldest buffered audio beyond the max (this is "discard obsolete

@@ -41,6 +41,9 @@ public sealed class ClientConfig
     {
         var cfg = JsonSerializer.Deserialize<ClientConfig>(File.ReadAllText(path), Json)
                   ?? throw new InvalidDataException($"config file {path} is empty");
+        // Default data dir sits next to the config (ProgramData\SchoolBell\data on Windows).
+        if (string.IsNullOrWhiteSpace(cfg.DataDir))
+            cfg.DataDir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path))!, "data");
         cfg.Validate();
         return cfg;
     }

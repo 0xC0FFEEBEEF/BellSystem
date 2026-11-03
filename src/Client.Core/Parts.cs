@@ -1,3 +1,4 @@
+using SchoolBell.Contracts;
 namespace SchoolBell.Client.Core;
 
 public sealed record BellPlayOutcome(bool Played, string? Reason);
@@ -24,6 +25,8 @@ public interface IRendererProvider
     RendererInfo GetRenderer();
     VolumeSnapshot GetVolumes();
     string CompanionState { get; } // running | hidden | missing
+    IReadOnlyList<string> AvailableOutputs => [];
+    string RendererOwner => "companion";
 }
 
 public interface IIdentityProvider
@@ -39,4 +42,15 @@ public interface IKeepAwakeApplier
     Task<bool> RequestApplyAsync(bool displayOff, CancellationToken ct);
     Task RequestClearAsync(CancellationToken ct);
     bool Applied { get; }
+}
+
+/// Client update installer (Windows: verifies the publisher signature, downloads, runs the
+/// signed installer through the rollback-capable update runner). Reports progress through
+/// the callback, which the agent forwards as update.status.
+public interface IClientUpdater
+{
+    string CurrentVersion { get; }
+    Task HandleOfferAsync(UpdateOfferPayload offer, Func<UpdateStatusPayload, Task> report, CancellationToken ct);
+    /// Result of an update that finished while the service was being replaced (read once at start).
+    UpdateStatusPayload? TakeCompletedResult();
 }

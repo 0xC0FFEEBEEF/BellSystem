@@ -312,6 +312,7 @@ public sealed partial class AnnouncementsService
     /// A device receipt (type "receipt") that names an announcement.
     public bool OnDeviceReceipt(string deviceId, string refId, string state, string? errorCode)
     {
+        if (refId.StartsWith("ring-", StringComparison.Ordinal)) return OnRingReceipt(deviceId, refId, state, errorCode);
         if (Read(refId) is null || !IsTargeted(refId, deviceId)) return false;
         RecordDelivery(refId, deviceId, state, errorCode, "device");
         return true;
@@ -386,6 +387,7 @@ public sealed partial class AnnouncementsService
     /// Recorded offers ARE re-offered while offer_expires_at is still in the future.
     public bool OutboxReplayOk(string deviceId, ControlEnvelope env)
     {
+        if (env.Type == Protocol.TBellRing) return RingReplayOk(deviceId, env);
         if (env.Type == Protocol.TAnnouncementOffer)
         {
             var payload = PayloadSerializer.ToPayload<AnnouncementOfferPayload>(env);
@@ -445,6 +447,7 @@ public sealed partial class AnnouncementsService
         foreach (var (deviceId, _) in targets) _outbox.Enqueue(deviceId, endEnv);
         _media.EndAnnouncement(announcementId);
         _media.Forget(announcementId);
+        PushHistory(announcementId);   // tray history: entry appears now, transcript follows
 
         _log.LogInformation("announcement {AnnouncementId} ended ({EndedBy}) for {Count} device(s); recording {Path}",
             announcementId, endedBy, targets.Count, ann.RecordingPath ?? "none");

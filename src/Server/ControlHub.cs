@@ -33,12 +33,16 @@ public sealed class ControlHub
     public ControlHub(Db db, ServerConfig cfg, TimeProvider time, ControlRegistry registry,
         OutboxService outbox, DevicesService devices, ReceiptsService receipts,
         KeepAwakeService keepAwake, PublishService publish, ILogger<ControlHub> log,
-        AnnouncementsService? announcements = null)
+        AnnouncementsService? announcements = null, DeviceSettingsService? settings = null,
+        ClientUpdateService? updates = null)
     {
         _db = db; _cfg = cfg; _time = time; _registry = registry; _outbox = outbox;
         _devices = devices; _receipts = receipts; _keepAwake = keepAwake; _publish = publish; _log = log;
-        _announcements = announcements;
+        _announcements = announcements; _settings = settings; _updates = updates;
     }
+
+    private readonly DeviceSettingsService? _settings;
+    private readonly ClientUpdateService? _updates;
 
     public long RejectedAtConnectionLimit => Interlocked.Read(ref _rejectedLimitReached);
 
@@ -126,7 +130,8 @@ public sealed class ControlHub
 
         var nowMs = _time.GetUtcNow().ToUnixTimeMilliseconds();
         using (var conn = _db.Open())
-            conn.Run("UPDATE devices SET last_seen = $t WHERE device_id = $d", ("$t", nowMs), ("$d", resp.DeviceId));
+            conn.Run("UPDATE devices SET last_seen = $t, client_version = $v WHERE device_id = $d",
+                ("$t", nowMs), ("$v", resp.ClientVersion is { Length: > 0 and <= 64 } cv ? cv : null), ("$d", resp.DeviceId));
 
         // 3) auth.ok
         var ok = ControlEnvelope.Create(Protocol.TAuthOk,
@@ -243,6 +248,15 @@ public sealed class ControlHub
                 _devices.UpdateAck(deviceId, ack);
                 Audit.Add(_db, $"device:{deviceId}", "schedule.ack", $"revision={ack.Revision}");
                 return true;
+            case Protocol.TUpdateStatus:
+                var us = PayloadSerializer.ToPayload<UpdateStatusPayload>(env);
+                if (us is null || string.IsNullOrEmpty(us.Version))
+                {
+                    conn.Close(WebSocketCloseStatus.PolicyViolation, "invalid update.status");
+                    return false;
+                }
+                _updates?.OnDeviceStatus(deviceId, us);
+                return true;
             case Protocol.TKeepAwakeAck:
                 var ka = PayloadSerializer.ToPayload<KeepAwakeAckPayload>(env);
                 if (ka is null || string.IsNullOrEmpty(ka.PolicyId))
@@ -324,6 +338,10 @@ public sealed class ControlHub
                 _outbox.Enqueue(deviceId, manifestEnvelope);
             }
         }
+
+        // current device settings (output, volume, groups) on every connect — sent live, not via
+        // the outbox, so reconnects do not pile up settings events
+        if (_settings is not null) conn.Send(_settings.Envelope(deviceId));
 
         // re-send active keep-awake policies (never expired ones)
         foreach (var policy in _keepAwake.ActivePoliciesFor(deviceId))

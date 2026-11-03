@@ -108,6 +108,7 @@ public static class AdminEndpoints
             if (user is null) return err!;
             var body = await Http.ReadBody<MemberRequest>(ctx);
             var (status, detail) = directory.AddMember(user.Username, id, body?.DeviceId ?? "");
+            if (status == 200) ctx.RequestServices.GetRequiredService<DeviceSettingsService>().Touch(body!.DeviceId!);
             return status == 200 ? Http.Json(new { ok = true }) : Err.Detail(status, detail!);
         });
 
@@ -116,6 +117,7 @@ public static class AdminEndpoints
             var (user, err) = Admin(ctx);
             if (user is null) return err!;
             var (status, detail) = directory.RemoveMember(user.Username, id, deviceId);
+            if (status == 200) ctx.RequestServices.GetRequiredService<DeviceSettingsService>().Touch(deviceId);
             return status == 200 ? Http.Json(new { ok = true }) : Err.Detail(status, detail!);
         });
 

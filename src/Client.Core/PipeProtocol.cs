@@ -85,3 +85,30 @@ public sealed record PipeAnnEnd(string AnnouncementId, string EndedBy);
 public sealed record PipeKeepAwakeState(bool Desired, bool DisplayOff, long ExpiresAt);
 public sealed record PipeNextOccurrence(string OccurrenceId, string BellName, long StartsAt, string LocalHm);
 public sealed record PipeManifestState(long Revision, long ExpiresAt, bool Stale, PipeNextOccurrence? Next);
+
+// ---------- v1.1 additions (renderer arbitration, settings, history, volume recovery) ----------
+
+/// Volume state captured before an override. Persisted by the service so the next renderer to
+/// start (any user, or the service's own signed-out renderer) can restore it after a crash.
+/// Restores apply only to the endpoint with the same DeviceId, never to a different speaker.
+public sealed record VolumeRecoveryRecord(
+    string DeviceId, string DeviceName, bool MasterMuted, float MasterScalar,
+    bool SessionMuted, float SessionVolume, long CapturedAt, string Owner);
+
+public sealed record PipeVolumeOverride(VolumeRecoveryRecord? Record);          // companion -> service
+public sealed record PipeVolumeRecover(VolumeRecoveryRecord Record);            // service -> companion
+public sealed record PipeSettings(string? OutputDevice, int AnnouncementVolume, int VolumeCap);
+public sealed record PipeHistoryList(List<SchoolBell.Contracts.HistoryItemPayload> Items);
+public sealed record PipeServiceState(
+    bool Connected, string ServerUrl, string RendererOwner, string ComputerName, string ClientVersion,
+    string? UpdateState);
+
+public static class PipeTypes
+{
+    public const string VolumeOverride = "volume.override";   // companion -> service
+    public const string HistoryGet = "history.get";           // companion -> service
+    public const string Settings = "settings";                // service -> companion
+    public const string VolumeRecover = "volume.recover";     // service -> companion
+    public const string HistoryList = "history.list";         // service -> companion
+    public const string ServiceState = "service.state";       // service -> companion
+}

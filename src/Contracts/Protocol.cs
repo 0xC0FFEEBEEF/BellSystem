@@ -46,6 +46,17 @@ public static class Protocol
     public const string TMediaToken = "media.token";
     public const string TManifestRejected = "manifest.rejected";
 
+    // v1 additive extensions (PROTOCOL.md §13). Older clients consume unknown server
+    // messages without effect; the server accepts update.status only from v1.1+ clients.
+    public const string TBellRing = "bell.ring";              // server -> device: ring now
+    public const string TDeviceSettings = "device.settings";  // server -> device: output, volume, groups
+    public const string THistoryItem = "history.item";        // server -> device: tray history entry
+    public const string TUpdateOffer = "update.offer";        // server -> device: signed client update
+    public const string TUpdateStatus = "update.status";      // device -> server: update progress
+
+    public const int ManualRingTtlSeconds = 15;               // a "ring now" is never played later than this
+    public const int DeviceHistoryMax = 50;
+
     public static readonly string[] ReceiptStates =
         ["offered", "ready", "started", "completed", "failed", "expired", "suppressed", "unknown"];
 }

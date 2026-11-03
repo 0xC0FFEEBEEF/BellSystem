@@ -15,6 +15,11 @@ public sealed partial class DeviceAgent
     }
 
     private readonly Dictionary<string, AnnContext> _announcements = [];
+
+    /// Media silence that ends an announcement locally (frames flow continuously while the
+    /// office holds the talk button, so a gap this long means a lost stream).
+    public int StreamStallMs { get; set; } = 6_000;
+    public int FirstFrameTimeoutMs { get; set; } = 15_000;
     private readonly object _annGate = new();
 
     /// Live-speech priority (PROTOCOL §6/§7): while an announcement for this device is
@@ -54,7 +59,7 @@ public sealed partial class DeviceAgent
         // Companion prepares output + volume override now (before the preparation window ends).
         await _pipeline.StartAsync(new PipeAnnStart(
             offer.AnnouncementId, offer.Kind, offer.SourceLabel, offer.Chime,
-            "announcement", _cfg.AnnouncementVolume, offer.MaxDurationS), ct);
+            "announcement", AnnouncementVolume, offer.MaxDurationS), ct);
 
         NotifyStateChanged(); // liveActive now suppresses due bells
         _ = WatchdogAsync(offer.AnnouncementId, offer.MaxDurationS + 5, ct);
@@ -114,21 +119,39 @@ public sealed partial class DeviceAgent
     {
         var id = ctx.Offer.AnnouncementId;
         var batch = new List<MediaFrame>();
-        bool sawLast = false;
+        bool sawLast = false, stalled = false;
         try
         {
             while (ctx.Media is not null && !ct.IsCancellationRequested)
             {
-                var frame = await ctx.Media.ReceiveFrameAsync(ct);
+                // Stall detection: a live stream that goes quiet stops locally within seconds
+                // (volume restored) instead of waiting for the max-duration watchdog.
+                var stallMs = ctx.StartedReceipted ? StreamStallMs : FirstFrameTimeoutMs;
+                MediaFrame? frame;
+                using (var stall = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                {
+                    stall.CancelAfter(stallMs);
+                    try { frame = await ctx.Media.ReceiveFrameAsync(stall.Token); }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        _log.LogWarning("announcement {AnnouncementId}: no media for {Ms} ms — stopping locally", id, stallMs);
+                        stalled = true;
+                        break;
+                    }
+                }
                 if (frame is null) break;
                 if (!ctx.StartedReceipted)
                 {
                     ctx.StartedReceipted = true;
                     QueueReceipt(new ReceiptPayload(id, ReceiptState.Started, Clock.NowMs(), null));
                 }
+                // The service only sequences (drops duplicates/stale frames, counts gaps) and
+                // forwards at once; the renderer owns the timing jitter buffer, paced by the
+                // audio clock. Holding frames here would add latency without smoothing.
                 ctx.Jitter.Push(frame.Value);
-                while (ctx.Jitter.Dequeue() is { } ready) batch.Add(ready);
-                if (batch.Count >= PipeProtocol.MaxFramesPerBatch)
+                foreach (var ready in ctx.Jitter.Drain()) batch.Add(ready);
+                ctx.Jitter.Reopen();
+                if (batch.Count > 0)
                 {
                     await _pipeline.FramesAsync(id, batch, ct);
                     batch.Clear();
@@ -148,7 +171,11 @@ public sealed partial class DeviceAgent
             catch (Exception e) { _log.LogWarning("final frame batch failed: {Error}", e.Message); }
         }
 
-        if (sawLast)
+        if (stalled)
+        {
+            await FinishAnnouncementAsync(id, "timeout", ReceiptState.Failed, "stream_stalled", CancellationToken.None);
+        }
+        else if (sawLast)
         {
             await FinishAnnouncementAsync(id, "server",
                 ctx.StartedReceipted ? ReceiptState.Completed : ReceiptState.Failed,

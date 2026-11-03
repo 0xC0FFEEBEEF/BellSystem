@@ -7,8 +7,13 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>SchoolBellCompanion</AssemblyName>
+    <RootNamespace>SchoolBell.Client.Desktop</RootNamespace>
+    <ApplicationIcon>..\..\install\windows\schoolbell.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Contracts\Contracts.csproj" />
+    <ProjectReference Include="..\Client.Core\Client.Core.csproj" />
+    <ProjectReference Include="..\Client.Audio\Client.Audio.csproj" />
   </ItemGroup>
 </Project>

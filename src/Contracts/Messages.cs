@@ -71,7 +71,9 @@ public sealed record DeviceStatusPayload(
     long CacheExpiresAt,
     KeepAwakeStatus KeepAwake,
     PlaybackResult? LastPlayback,
-    string Companion);             // running | hidden | missing
+    string Companion,              // running | hidden | missing
+    List<string>? AvailableOutputs = null,   // v1.1: speakers present, for the /admin output chooser
+    string? RendererOwner = null);           // v1.1: companion | service
 
 public sealed record SoundRef(string Id, string Sha256, string Url);
 
@@ -137,3 +139,42 @@ public sealed record AnnouncementReadyPayload(string AnnouncementId, string Outp
 public sealed record AnnouncementRejectPayload(string AnnouncementId, string Reason);
 public sealed record AnnouncementEndPayload(string AnnouncementId, string EndedBy, long At);
 public sealed record MediaTokenPayload(string AnnouncementId, string Token, long ExpiresAt);
+
+// ---------- v1 additive extensions (PROTOCOL.md §13) ----------
+
+/// Immediate bell ("ring now"). The ring id doubles as the receipt id; it is claimed in the
+/// device ledger like a scheduled occurrence, so a replayed ring never plays twice, and a ring
+/// that arrives after expires_at is recorded expired instead of ringing late.
+public sealed record BellRingPayload(
+    string RingId, string BellName, SoundRef Sound, int DurationS, string VolumePolicy,
+    long IssuedAt, long ExpiresAt, string RequestedBy);
+
+/// Per-device settings chosen in /admin. `Groups` lets the device match group-scoped bells in
+/// the cached manifest. `OutputDevice` null = the Windows default output (documented); a named
+/// output that disappears is reported missing_output, never silently replaced.
+public sealed record DeviceSettingsPayload(
+    long SettingsVersion, string? OutputDevice, int AnnouncementVolume, int VolumeCap,
+    List<long> Groups, string? Room);
+
+/// Tray history entry. Text is present only for schoolwide announcements; targeted
+/// announcements carry no text (office-only until verified identity integration exists).
+public sealed record HistoryItemPayload(
+    string AnnouncementId, long At, string Kind, string SourceLabel, bool Schoolwide,
+    string TranscriptStatus, string? Text, bool Corrected);
+
+/// Signed client update. `ReleaseManifest` is the exact release-manifest.json text and
+/// `ReleaseSignature` its base64 DER ECDSA-P256-SHA256 signature by the publisher key pinned at
+/// install time. The device trusts nothing else in this message: it checks that the signed
+/// manifest's version matches and that the downloaded file's sha256 matches the manifest entry.
+public sealed record UpdateOfferPayload(
+    string Version, string ArtifactPath, string Url, long Bytes, string ReleaseManifest,
+    string ReleaseSignature, bool AllowDowngrade, long NotBefore);
+
+/// state: received | downloading | verified | deferred | installing | installed | failed | rolled_back
+public sealed record UpdateStatusPayload(string Version, string State, string? Error, long At);
+
+/// release-manifest.json (signed by the publisher key; see build/release.sh).
+public sealed record ReleaseManifest(
+    string Product, string Version, string Commit, long CreatedAt,
+    Dictionary<string, ReleaseFile> Files);
+public sealed record ReleaseFile(string Sha256, long Bytes);

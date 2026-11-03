@@ -15,5 +15,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Contracts\Contracts.csproj" />
     <ProjectReference Include="..\Client.Core\Client.Core.csproj" />
+    <ProjectReference Include="..\Client.Audio\Client.Audio.csproj" />
   </ItemGroup>
 </Project>

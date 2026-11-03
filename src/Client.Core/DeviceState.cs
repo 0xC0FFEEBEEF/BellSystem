@@ -43,7 +43,9 @@ public sealed record StatusFacts(
     KeepAwakeState KeepAwake,
     bool KeepAwakeApplied,
     PlaybackResult? LastPlayback,
-    string Companion);            // running | hidden | missing
+    string Companion,             // running | hidden | missing
+    List<string>? AvailableOutputs = null,
+    string? RendererOwner = null);
 
 public sealed class StatusComposer
 {
@@ -65,5 +67,5 @@ public sealed class StatusComposer
             facts.Volumes.SessionMuted, facts.Volumes.SessionVolume,
             _clock.OffsetMs(), _manifests.LocalRevision, cacheExpiresAt,
             new KeepAwakeStatus(facts.KeepAwake.Desired, facts.KeepAwakeApplied, facts.KeepAwake.MaxExpiresAt),
-            facts.LastPlayback, facts.Companion);
+            facts.LastPlayback, facts.Companion, facts.AvailableOutputs, facts.RendererOwner);
 }

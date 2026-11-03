@@ -8,7 +8,16 @@ namespace SchoolBell.Server;
 
 public static class Util
 {
-    public const string ServerVersion = "1.1.0-s2";
+    /// Build version (set by build/release.sh via -p:Version); dev builds report Directory.Build.props.
+    public static readonly string ServerVersion = ReadVersion();
+
+    private static string ReadVersion()
+    {
+        var v = typeof(Util).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0.0.0";
+        var plus = v.IndexOf('+');
+        return plus < 0 ? v : v[..plus];
+    }
 
     /// snake_case options for our own API DTOs (Contracts types use ControlEnvelope.Json).
     public static readonly JsonSerializerOptions ApiJson = new()

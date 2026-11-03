@@ -35,6 +35,10 @@ public sealed partial class DeviceAgent
             Protocol.TAnnouncementOffer => await HandleOfferAsync(session, env, ct),
             Protocol.TMediaToken => await HandleMediaTokenAsync(session, env, ct),
             Protocol.TAnnouncementEnd => await HandleAnnouncementEndAsync(session, env, ct),
+            Protocol.TBellRing => HandleBellRing(env, ct),
+            Protocol.TDeviceSettings => HandleDeviceSettings(env),
+            Protocol.THistoryItem => HandleHistoryItem(env),
+            Protocol.TUpdateOffer => HandleUpdateOffer(env, ct),
             _ => UnknownEvent(env),
         };
 

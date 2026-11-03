@@ -276,5 +276,66 @@ public static class Migrations
         );
         CREATE INDEX idx_transcript_jobs_status ON transcript_jobs(status, job_id);
         """,
+
+        // 5: ring now, per-device settings, sound library metadata, client update rollouts
+        """
+        CREATE TABLE bell_rings(
+          ring_id TEXT PRIMARY KEY,
+          requested_by TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          bell_name TEXT NOT NULL,
+          sound_id TEXT NOT NULL,
+          sound_sha256 TEXT NOT NULL,
+          duration_s INTEGER NOT NULL,
+          volume_policy TEXT NOT NULL,
+          target_json TEXT NOT NULL,
+          target_label TEXT NOT NULL
+        );
+        CREATE INDEX idx_rings_created ON bell_rings(created_at DESC);
+        CREATE TABLE ring_results(
+          ring_id TEXT NOT NULL REFERENCES bell_rings(ring_id) ON DELETE CASCADE,
+          device_id TEXT NOT NULL,
+          label TEXT NOT NULL,
+          state TEXT NOT NULL,
+          error_code TEXT,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(ring_id, device_id)
+        );
+        ALTER TABLE devices ADD COLUMN output_device TEXT;
+        ALTER TABLE devices ADD COLUMN announcement_volume INTEGER;
+        ALTER TABLE devices ADD COLUMN volume_cap INTEGER;
+        ALTER TABLE devices ADD COLUMN room TEXT;
+        ALTER TABLE devices ADD COLUMN settings_version INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE devices ADD COLUMN client_version TEXT;
+        ALTER TABLE devices ADD COLUMN update_json TEXT;
+        ALTER TABLE sound_assets ADD COLUMN name TEXT;
+        ALTER TABLE sound_assets ADD COLUMN duration_ms INTEGER;
+        ALTER TABLE sound_assets ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE sound_assets ADD COLUMN updated_at INTEGER;
+        ALTER TABLE sound_assets ADD COLUMN updated_by TEXT;
+        CREATE TABLE client_rollouts(
+          rollout_id TEXT PRIMARY KEY,
+          version TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          target_json TEXT NOT NULL,
+          batch_size INTEGER NOT NULL,
+          batch_interval_s INTEGER NOT NULL,
+          allow_downgrade INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed','cancelled'))
+        );
+        CREATE TABLE client_rollout_devices(
+          rollout_id TEXT NOT NULL REFERENCES client_rollouts(rollout_id) ON DELETE CASCADE,
+          device_id TEXT NOT NULL,
+          batch INTEGER NOT NULL,
+          not_before INTEGER NOT NULL,
+          offered_at INTEGER,
+          state TEXT NOT NULL DEFAULT 'pending',
+          error TEXT,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(rollout_id, device_id)
+        );
+        """,
     ];
 }

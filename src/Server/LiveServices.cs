@@ -60,6 +60,7 @@ public interface ITranscriptionEngine
 {
     string Name { get; }
     bool Available { get; }
+    Task<bool> IsAvailableAsync(CancellationToken ct) => Task.FromResult(Available);
     Task<string?> TranscribeAsync(string wavPath, CancellationToken ct);
 }
 
@@ -90,24 +91,25 @@ public sealed class TranscriptionWorkerHost : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        int queued = Queued();
-        if (!_settings.TranscriptionEnabled)
-        {
-            _log.LogInformation("transcription worker idle: settings.transcription_enabled=false; {Queued} transcript job(s) remain queued (no transcript is faked)", queued);
-            return;
-        }
-        if (!_engine.Available)
-        {
-            _log.LogWarning("transcription_enabled=true but no transcription engine is configured (milestone S2 ships none; the whisper.cpp consumer arrives with S3); {Queued} transcript job(s) remain queued", queued);
-            return;
-        }
-
-        _log.LogInformation("transcription worker running with engine {Engine}", _engine.Name);
+        string? lastIdleReason = null;
         using var timer = new PeriodicTimer(Interval);
         while (await timer.WaitForNextTickAsync(ct))
         {
             try
             {
+                // Re-read every pass: enabling transcription in /admin or starting the whisper
+                // service takes effect without restarting SchoolBell. Playback never waits on this.
+                string? idle = !_settings.TranscriptionEnabled ? "settings.transcription_enabled=false"
+                    : !await _engine.IsAvailableAsync(ct) ? $"engine '{_engine.Name}' unavailable" : null;
+                if (idle is not null)
+                {
+                    if (idle != lastIdleReason)
+                        _log.LogInformation("transcription worker idle ({Reason}); {Queued} job(s) queued — no transcript is faked", idle, Queued());
+                    lastIdleReason = idle;
+                    continue;
+                }
+                if (lastIdleReason is not null) _log.LogInformation("transcription worker running with engine {Engine}", _engine.Name);
+                lastIdleReason = null;
                 var job = ClaimJob();
                 if (job is null) continue;
                 var (jobId, annId, path) = job.Value;
@@ -174,6 +176,8 @@ public sealed class TranscriptionWorkerHost : BackgroundService
             conn.Run("UPDATE transcript_jobs SET status = 'completed', last_error = NULL, updated_at = $t WHERE job_id = $j",
                 ("$t", now), ("$j", jobId));
             _log.LogInformation("transcript stored for announcement {AnnouncementId} ({Chars} chars)", announcementId, text.Length);
+            conn.Dispose();
+            _announcements.PushHistory(announcementId);
             return;
         }
 
@@ -183,7 +187,10 @@ public sealed class TranscriptionWorkerHost : BackgroundService
         conn.Run("UPDATE transcript_jobs SET status = $s, last_error = $e, updated_at = $t WHERE job_id = $j",
             ("$s", exhausted ? "failed" : "queued"), ("$e", error), ("$t", now), ("$j", jobId));
         if (exhausted)
+        {
             conn.Run("UPDATE transcripts SET status = 'failed', updated_at = $t WHERE announcement_id = $a", ("$t", now), ("$a", announcementId));
+            _announcements.PushHistory(announcementId);
+        }
         _log.LogWarning("transcription job {JobId} for announcement {AnnouncementId} failed (attempt {Attempts}/{Max}): {Error}",
             jobId, announcementId, attempts, maxAttempts, error);
     }

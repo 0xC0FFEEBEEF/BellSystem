@@ -108,6 +108,39 @@ public sealed class SoundCache
         return new(true, null, downloaded, reused, CurrentDir);
     }
 
+    /// A sound outside the accepted manifest (a "ring now" with a custom sound): reuse the cached
+    /// copy when its hash matches, otherwise download into cache/adhoc and verify sha256 before use.
+    public async Task<string?> EnsureSoundAsync(HttpClient http, SoundRef sound, CancellationToken ct)
+    {
+        var name = SafeFileName(sound.Id);
+        if (name is null || string.IsNullOrEmpty(sound.Sha256)) return null;
+        var want = sound.Sha256.ToLowerInvariant();
+        var cached = System.IO.Path.Combine(CurrentDir, name);
+        if (File.Exists(cached) && Sha256Hex(cached) == want) return cached;
+
+        var adhocDir = System.IO.Path.Combine(_root, "adhoc");
+        Directory.CreateDirectory(adhocDir);
+        var adhoc = System.IO.Path.Combine(adhocDir, $"{System.IO.Path.GetFileNameWithoutExtension(name)}-{want[..16]}.wav");
+        if (File.Exists(adhoc) && Sha256Hex(adhoc) == want) return adhoc;
+
+        byte[] bytes;
+        try
+        {
+            using var resp = await http.GetAsync(sound.Url, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            bytes = await resp.Content.ReadAsByteArrayAsync(ct);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested) { return null; }
+        if (Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() != want) return null;
+        var tmp = adhoc + ".tmp";
+        await File.WriteAllBytesAsync(tmp, bytes, ct);
+        File.Move(tmp, adhoc, overwrite: true);
+        // keep the ad-hoc folder small: newest 8 files
+        foreach (var old in new DirectoryInfo(adhocDir).GetFiles("*.wav").OrderByDescending(f => f.LastWriteTimeUtc).Skip(8))
+            try { old.Delete(); } catch (IOException) { }
+        return adhoc;
+    }
+
     private void TryDeleteStaleAuxDirs(string except)
     {
         foreach (var dir in Directory.GetDirectories(_root))

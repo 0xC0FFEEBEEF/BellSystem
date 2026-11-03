@@ -99,3 +99,52 @@ public static class AuthProof
         return CryptographicOperations.FixedTimeEquals(expected, actual);
     }
 }
+
+/// Publisher signatures for release artifacts (server self-update and client updates).
+/// ECDSA P-256 / SHA-256, DER signature (what `openssl dgst -sha256 -sign` produces).
+/// The public key is pinned at install time; the private key never touches a school machine.
+public static class ReleaseSignature
+{
+    public static bool Verify(string manifestText, string signatureBase64, string publicKeyPem)
+    {
+        byte[] sig;
+        try { sig = Convert.FromBase64String(signatureBase64.Trim()); }
+        catch (FormatException) { return false; }
+        using var ecdsa = ECDsa.Create();
+        try { ecdsa.ImportFromPem(publicKeyPem); }
+        catch (Exception) { return false; }
+        return ecdsa.VerifyData(Encoding.UTF8.GetBytes(manifestText), sig, HashAlgorithmName.SHA256,
+            DSASignatureFormat.Rfc3279DerSequence);
+    }
+
+    public static ReleaseManifest? ParseVerified(string manifestText, string signatureBase64, string publicKeyPem)
+    {
+        if (!Verify(manifestText, signatureBase64, publicKeyPem)) return null;
+        try { return JsonSerializer.Deserialize<ReleaseManifest>(manifestText, ControlEnvelope.Json); }
+        catch (JsonException) { return null; }
+    }
+
+    /// Semantic-ish version compare: numeric dotted parts, a "-suffix" sorts before the release.
+    public static int CompareVersions(string a, string b)
+    {
+        static (int[] Nums, string Suffix) Split(string v)
+        {
+            var dash = v.IndexOf('-');
+            var core = dash < 0 ? v : v[..dash];
+            var suffix = dash < 0 ? "" : v[(dash + 1)..];
+            var nums = core.Split('.').Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+            return (nums, suffix);
+        }
+        var (na, sa) = Split(a.TrimStart('v'));
+        var (nb, sb) = Split(b.TrimStart('v'));
+        for (int i = 0; i < Math.Max(na.Length, nb.Length); i++)
+        {
+            int x = i < na.Length ? na[i] : 0, y = i < nb.Length ? nb[i] : 0;
+            if (x != y) return x.CompareTo(y);
+        }
+        if (sa == sb) return 0;
+        if (sa == "") return 1;
+        if (sb == "") return -1;
+        return string.CompareOrdinal(sa, sb);
+    }
+}
