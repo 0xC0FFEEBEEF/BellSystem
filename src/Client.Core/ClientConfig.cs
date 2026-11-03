@@ -71,7 +71,7 @@ public sealed class ClientConfig
 
     public string ControlWsUrl => ToWsUrl(ServerUrl, "/ws/control");
     public string MediaWsUrl(string announcementId, string token) =>
-        ToWsUrl(ServerUrl, $"/ws/media?announcement_id={Uri.EscapeDataString(announcementId)}&token={Uri.EscapeDataString(token)}");
+        ToWsUrl(ServerUrl, $"/ws/media?announcement_id={Uri.EscapeDataString(announcementId)}&device_id={Uri.EscapeDataString(DeviceId)}&token={Uri.EscapeDataString(token)}");
 
     private static string ToWsUrl(string httpUrl, string path)
     {

@@ -163,8 +163,9 @@ Device prepares output + volume override, replies `announcement.ready` (receipt 
 `announcement.reject` (reason: `renderer|output|volume_locked`). After the bounded
 preparation window (default 5 s) the server opens the media channel:
 
-- Media WSS: `/ws/media?announcement_id=...` authenticated by a short-lived, single-use
-  media token issued on the control channel bound to (device_id, announcement_id).
+- Media WSS: `/ws/media?announcement_id=...&device_id=...&token=...` authenticated by a
+  short-lived, single-use media token issued on the control channel bound to
+  (device_id, announcement_id). The server redeems the token only for that exact pair.
 - Binary frame (all little-endian):
 
 ```

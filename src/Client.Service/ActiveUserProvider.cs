@@ -24,10 +24,9 @@ public sealed class ActiveUserProvider : IIdentityProvider
         {
             var sidString = GetActiveUserSidString();
             if (sidString is null) return (null, null);
-            using var identity = new WindowsIdentity(sidString);
-            var name = identity.Name.Contains('\\')
-                ? identity.Name[(identity.Name.LastIndexOf('\\') + 1)..]
-                : identity.Name;
+            // SID -> DOMAIN\name (WindowsIdentity(string) takes a UPN, not a SID)
+            var account = new SecurityIdentifier(sidString).Translate(typeof(NTAccount)).Value;
+            var name = account.Contains('\\') ? account[(account.LastIndexOf('\\') + 1)..] : account;
             return (name, sidString);
         }
         catch (Exception e)

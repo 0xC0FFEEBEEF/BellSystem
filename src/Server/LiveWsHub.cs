@@ -277,11 +277,24 @@ public sealed class LiveWsHub
             if (stream.RecordedPath is not null)
             {
                 ulong baseTs = (ulong)(ann.StartedAt ?? ann.CreatedAt);
+                // Real-time pacing: the device renderer keeps at most ~2 s buffered (it discards
+                // backlog rather than play late), so recorded audio is sent at playback speed after
+                // a short lead that primes its jitter buffer. 100 ms chunks keep timer load low.
+                const int leadFrames = 20, chunkFrames = 5;
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                int sent = 0;
                 foreach (var frame in MediaRouter.RecordedFrames(stream.RecordedPath, baseTs))
                 {
                     if (cts.IsCancellationRequested || ws.State != WebSocketState.Open) { reason = "media_socket_closed"; break; }
+                    if (sent >= leadFrames && (sent - leadFrames) % chunkFrames == 0)
+                    {
+                        long dueMs = (long)(sent - leadFrames) * Protocol.FrameMs;
+                        long ahead = dueMs - clock.ElapsedMilliseconds;
+                        if (ahead > 2) await Task.Delay(TimeSpan.FromMilliseconds(ahead), cts.Token);
+                    }
                     await ws.SendAsync(frame.ToBytes(), WebSocketMessageType.Binary, true, cts.Token);
                     _media.CountFrame(stream);
+                    sent++;
                     if (frame.IsLast) { deliveredLast = true; break; }
                 }
             }

@@ -19,6 +19,7 @@ public sealed class RendererRouter : IBellPlayer, IAnnouncementPipeline, IRender
     private readonly VolumeRecoveryStore _recovery;
     private readonly ILogger _log;
     private readonly Dictionary<string, PipeServerHost.Session?> _annTargets = []; // null = headless
+    private readonly Dictionary<string, PipeAnnStart> _annStarts = [];
     private readonly object _gate = new();
 
     public RendererRouter(PipeServerHost pipe, AudioEngine headless, VolumeRecoveryStore recovery, ILogger log)
@@ -44,7 +45,23 @@ public sealed class RendererRouter : IBellPlayer, IAnnouncementPipeline, IRender
     private void OnRendererChanged()
     {
         _log.LogInformation("active renderer: {Owner}", Owner);
-        if (_pipe.Renderer is null) RecoverPendingVolume();
+        if (_pipe.Renderer is not null) return;
+        RecoverPendingVolume();
+        // The companion vanished mid-announcement (crash, sign-out): the service renderer plays
+        // the rest of the stream. Audio already sent to the dead companion is lost (a short gap).
+        List<PipeAnnStart> orphaned;
+        lock (_gate)
+        {
+            orphaned = _annTargets.Where(kv => kv.Value is not null && _annStarts.ContainsKey(kv.Key))
+                .Select(kv => _annStarts[kv.Key]).ToList();
+            foreach (var a in orphaned) _annTargets[a.AnnouncementId] = null;
+        }
+        foreach (var a in orphaned)
+        {
+            var (ok, reason) = _headless.StartAnnouncement(a with { Chime = false });
+            _log.LogWarning("announcement {Id}: companion lost mid-stream; service renderer continues ({Result})",
+                a.AnnouncementId, ok ? "ok" : reason);
+        }
     }
 
     // ---------------------------------------------------------------- IRendererProvider
@@ -91,13 +108,14 @@ public sealed class RendererRouter : IBellPlayer, IAnnouncementPipeline, IRender
     public Task StartAsync(PipeAnnStart start, CancellationToken ct)
     {
         var companion = _pipe.Renderer;
+        lock (_gate) _annStarts[start.AnnouncementId] = start;
         if (companion is not null && _pipe.SendAnnStart(companion, start))
         {
             lock (_gate) _annTargets[start.AnnouncementId] = companion;
             return Task.CompletedTask;
         }
         var (ok, reason) = _headless.StartAnnouncement(start);
-        if (!ok) throw new InvalidOperationException($"no renderer: {reason}");
+        if (!ok) { lock (_gate) _annStarts.Remove(start.AnnouncementId); throw new InvalidOperationException($"no renderer: {reason}"); }
         lock (_gate) _annTargets[start.AnnouncementId] = null;
         return Task.CompletedTask;
     }
@@ -117,7 +135,7 @@ public sealed class RendererRouter : IBellPlayer, IAnnouncementPipeline, IRender
     {
         PipeServerHost.Session? target;
         bool known;
-        lock (_gate) { known = _annTargets.Remove(announcementId, out target); }
+        lock (_gate) { known = _annTargets.Remove(announcementId, out target); _annStarts.Remove(announcementId); }
         if (!known) return Task.CompletedTask;
         if (target is not null) _pipe.SendAnnEnd(target, announcementId, endedBy);
         else _headless.EndAnnouncement(announcementId);

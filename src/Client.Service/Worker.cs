@@ -43,17 +43,20 @@ public sealed class Worker : BackgroundService
 
         try
         {
+            _log.LogInformation("startup: loading config");
             var cfg = ClientConfig.Load(_configPath);
             cfg.ClientVersion = ClientUpdater.AppVersion();
             _cfg = cfg;
             _users = new ActiveUserProvider(logFactory.CreateLogger<ActiveUserProvider>());
             _pipe = new PipeServerHost(cfg, logFactory.CreateLogger<PipeServerHost>());
+            _log.LogInformation("startup: creating the service renderer");
             var headless = new AudioEngine(logFactory.CreateLogger("SchoolBell.ServiceRenderer"), "service")
             {
                 JitterStartMs = cfg.JitterBufferStartMs, JitterMaxMs = cfg.JitterBufferMaxMs,
             };
             _router = new RendererRouter(_pipe, headless, new VolumeRecoveryStore(cfg.DataDir),
                 logFactory.CreateLogger<RendererRouter>());
+            _log.LogInformation("startup: service renderer ready");
             _keepAwake = new KeepAwakeRunner();
             _updater = new ClientUpdater(cfg, _http, logFactory.CreateLogger<ClientUpdater>());
             _agent = new DeviceAgent(cfg, TimeProvider.System, _http,

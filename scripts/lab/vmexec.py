@@ -25,7 +25,9 @@ def main():
     a = ap.parse_args()
     code = a.code if a.code is not None else open(a.file, encoding="utf-8").read()
     # -EncodedCommand takes UTF-16LE base64; avoids every quoting problem.
-    enc = base64.b64encode(("$ProgressPreference='SilentlyContinue';" + code).encode("utf-16-le")).decode()
+    # wrap in a script block so a leading param() block stays valid
+    wrapped = "$ProgressPreference='SilentlyContinue'; & {\n" + code + "\n}"
+    enc = base64.b64encode(wrapped.encode("utf-16-le")).decode()
     pid = agent(a.domain, {"execute": "guest-exec", "arguments": {
         "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
         "arg": ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", enc],

@@ -18,3 +18,4 @@ TestResults/
 .probe-voices/
 probe.wav
 probe.wav.txt
+.build/

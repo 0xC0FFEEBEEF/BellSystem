@@ -35,6 +35,16 @@ public sealed partial class DeviceAgent
         if (offer is null || string.IsNullOrEmpty(offer.AnnouncementId)) return true;
 
         var now = Clock.NowMs();
+        // A recorded announcement that already played to completion here is never played again
+        // (e.g. an outbox replay after a service restart). Failed attempts may retry within expiry.
+        if (Ledger.Has(offer.AnnouncementId))
+        {
+            await session.SendAsync(ControlEnvelope.Create(Protocol.TAnnouncementReject,
+                PayloadSerializer.Node(new AnnouncementRejectPayload(offer.AnnouncementId, "already_played"))), ct);
+            return true;
+        }
+        lock (_annGate)
+            if (_announcements.ContainsKey(offer.AnnouncementId)) return true; // duplicate offer in flight
         var renderer = _renderer.GetRenderer();
         var (ready, reason) = AnnouncementGate.Decide(offer, now, renderer);
         if (!ready)
@@ -231,6 +241,8 @@ public sealed partial class DeviceAgent
         try { await _pipeline.EndAsync(announcementId, endedBy, CancellationToken.None); }
         catch (Exception e) { _log.LogWarning("pipeline end failed for {AnnouncementId}: {Error}", announcementId, e.Message); }
 
+        if (state == ReceiptState.Completed && Ledger.TryClaim(announcementId, Clock.NowMs()))
+            Ledger.MarkTerminal(announcementId, ReceiptState.Completed);
         QueueReceipt(new ReceiptPayload(announcementId, state, Clock.NowMs(), errorCode));
         _lastPlayback = new PlaybackResult(announcementId, state, Clock.NowMs());
         NotifyStateChanged();
