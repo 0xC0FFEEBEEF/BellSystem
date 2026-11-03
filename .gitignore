@@ -19,3 +19,5 @@ TestResults/
 probe.wav
 probe.wav.txt
 .build/
+web/node_modules/
+web/dist/

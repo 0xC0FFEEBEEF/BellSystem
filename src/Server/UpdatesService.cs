@@ -494,7 +494,7 @@ public sealed class UpdatesHost : BackgroundService
             if (Environment.TickCount64 - lastServerCheck > 3600_000 || lastServerCheck == 0)
             {
                 lastServerCheck = Environment.TickCount64;
-                try { await _server.PeriodicAsync(() => _announcements.ActiveAnnouncementCount() > 0, ct); }
+                try { await _server.PeriodicAsync(() => _announcements.ActiveLiveCount() > 0, ct); }
                 catch (Exception e) when (e is not OperationCanceledException) { _log.LogWarning("update check pass failed: {Error}", e.Message); }
             }
         }

@@ -29,6 +29,7 @@ def read(path, from_byte=0, seconds=None):
 ap = argparse.ArgumentParser()
 ap.add_argument("captured"); ap.add_argument("source")
 ap.add_argument("--from-byte", type=int, default=0); ap.add_argument("--seconds", type=float)
+ap.add_argument("--sizelog", help="wavwatch log: also print the host wall time of the match")
 a = ap.parse_args()
 cap = read(a.captured, a.from_byte, a.seconds); src = read(a.source)
 if len(cap) < len(src):
@@ -40,4 +41,23 @@ norm = c / (np.sqrt(win * np.sum(src ** 2)) + 1e-9)
 i = int(np.argmax(np.abs(norm)))
 print(f"best match at {i/16000:.3f}s into the capture, normalized correlation {abs(norm[i]):.3f} "
       f"(source {len(src)/16000:.2f}s, capture {len(cap)/16000:.2f}s)")
+if a.sizelog:
+    # map the match position back to a byte offset in the capture, then to host wall time
+    import bisect
+    data = open(a.captured, "rb").read(4096)
+    pos, fmt = 12, None
+    while pos + 8 <= len(data):
+        cid, size = data[pos:pos+4], struct.unpack("<I", data[pos+4:pos+8])[0]
+        if cid == b"fmt ": fmt = struct.unpack("<HHIIHH", data[pos+8:pos+24])
+        if cid == b"data": off = pos + 8; break
+        pos += 8 + size
+    rate, align = fmt[2], fmt[4]
+    start = max(off, a.from_byte); start -= (start - off) % align
+    byte = start + int(i / 16000 * rate) * align
+    pts = sorted((int(s), int(t)) for t, s in (l.split() for l in open(a.sizelog)))
+    keys = [p[0] for p in pts]
+    k = bisect.bisect_left(keys, byte)
+    (s0, t0), (s1, t1) = pts[max(0, k - 1)], pts[min(len(pts) - 1, k)]
+    wall = t0 + (t1 - t0) * (byte - s0) / max(1, s1 - s0)
+    print(f"match_wall_ms={int(wall)}")
 sys.exit(0 if abs(norm[i]) > 0.6 else 2)

@@ -1,0 +1,23 @@
+{
+  "name": "schoolbell-office-ui",
+  "private": true,
+  "version": "0.9.0",
+  "type": "module",
+  "description": "SchoolBell office web UI (dashboard, announcements, bells, endpoints, history, /admin). Built to static files served by the SchoolBell server; Node is a build-time tool only.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.2",
+    "typescript": "6.0.3",
+    "vite": "8.3.4"
+  }
+}

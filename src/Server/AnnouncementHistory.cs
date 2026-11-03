@@ -231,7 +231,7 @@ public sealed partial class AnnouncementsService
         {
             transcription_enabled = _settings.TranscriptionEnabled,
             engine = "none",
-            note = "no transcription engine is integrated in milestone S2; jobs stay queued and nothing is faked",
+            note = "whisper.cpp adapter (loopback, small.en) is present but transcription is OFF for this pilot and was not tested; jobs stay queued and nothing is faked",
             jobs = new
             {
                 queued = counts.GetValueOrDefault("queued"),
@@ -395,5 +395,13 @@ public sealed partial class AnnouncementsService
     {
         using var conn = _db.Open();
         return conn.ScalarInt("SELECT COUNT(*) FROM announcements WHERE status = 'active'");
+    }
+
+    /// Live announcements in progress (recorded ones stay "active" until their offer expires,
+    /// which can be a day, so they must not block maintenance such as server updates).
+    public int ActiveLiveCount()
+    {
+        using var conn = _db.Open();
+        return conn.ScalarInt("SELECT COUNT(*) FROM announcements WHERE status = 'active' AND kind = 'live'");
     }
 }

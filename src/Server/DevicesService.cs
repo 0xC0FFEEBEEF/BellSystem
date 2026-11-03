@@ -6,7 +6,8 @@ namespace SchoolBell.Server;
 
 public sealed record DeviceRow(string DeviceId, string Name, string Label, string Status, bool Revoked,
     long FirstSeen, long? LastSeen, long AcceptedRevision, long CacheRevision, long? CacheExpiresAt,
-    List<long> Groups, bool Connected, string State, JsonNode? KeepAwake, string? ComputerName, string? ActiveUser);
+    List<long> Groups, bool Connected, string State, JsonNode? KeepAwake, string? ComputerName, string? ActiveUser,
+    JsonNode? StatusReport = null, string? ClientVersion = null, string? Room = null, JsonNode? Update = null);
 
 public sealed record DevicePage(int Total, int Page, int PageSize, List<DeviceRow> Items);
 
@@ -146,7 +147,8 @@ public sealed class DevicesService
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT name, revoked, status, first_seen, last_seen, accepted_revision, cache_revision,
-                   cache_expires_at, computer_name, active_user, status_json, keep_awake_json
+                   cache_expires_at, computer_name, active_user, status_json, keep_awake_json,
+                   client_version, room, update_json
             FROM devices WHERE device_id = $d
             """;
         cmd.Parameters.AddWithValue("$d", deviceId);
@@ -164,6 +166,9 @@ public sealed class DevicesService
         var activeUser = r.IsDBNull(9) ? null : r.GetString(9);
         var statusJson = r.IsDBNull(10) ? null : r.GetString(10);
         var keepAwakeJson = r.IsDBNull(11) ? null : r.GetString(11);
+        var clientVersion = r.IsDBNull(12) ? null : r.GetString(12);
+        var room = r.IsDBNull(13) ? null : r.GetString(13);
+        var updateJson = r.IsDBNull(14) ? null : r.GetString(14);
         r.Close();
 
         var groups = GroupsOf(conn, deviceId).ToList();
@@ -176,8 +181,11 @@ public sealed class DevicesService
         var state = DeriveState(statusJson, connected, revoked, ageMs);
 
         JsonNode? keepAwake = keepAwakeJson is null ? null : TryParse(keepAwakeJson);
+        if (room is not null) label = $"{room} — {label}";
         return new DeviceRow(deviceId, name, label, status, revoked, firstSeen, lastSeen, accepted,
-            cacheRev, cacheExp, groups, connected, state, keepAwake, computerName, activeUser);
+            cacheRev, cacheExp, groups, connected, state, keepAwake, computerName, activeUser,
+            statusJson is null ? null : TryParse(statusJson), clientVersion, room,
+            updateJson is null ? null : TryParse(updateJson));
     }
 
     private static JsonNode? TryParse(string json)
@@ -197,7 +205,7 @@ public sealed class DevicesService
         }
         var staleThreshold = _cfg.StaleAfterSeconds * 1000L;
         if (!connected) return ageMs > staleThreshold ? "offline" : "stale";
-        if (ageMs > staleThreshold) return "stale";
+        // connected = the socket answered heartbeats within the last 30 s (KeepAliveTimeout)
         if (s is null) return "connected";
         if (s.LastPlayback is not null && s.LastPlayback.State == ReceiptState.Failed) return "playback_failed";
         if (s.Renderer != "ready") return "no_renderer";

@@ -40,6 +40,20 @@ public static class ExtraEndpoints
             return (u, null);
         }
 
+        // groups for the audience selector (any signed-in office user; targeting is still enforced)
+        app.MapGet("/api/groups-list", (HttpContext ctx) =>
+        {
+            var (u, e) = Need(ctx);
+            if (u is null) return e!;
+            using var conn = db.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT g.id, g.name, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) FROM groups g ORDER BY g.name";
+            var list = new List<object>();
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) list.Add(new { id = r.GetInt64(0), name = r.GetString(1), member_count = r.GetInt32(2) });
+            return Http.Json(list);
+        });
+
         app.MapGet("/api/health", () => Results.Json(new { status = "ok", version = Util.ServerVersion }, Util.ApiJson));
 
         // ---------------------------------------------------------------- sounds
@@ -307,7 +321,7 @@ public static class ExtraEndpoints
         {
             var (u, e) = Need(ctx, "admin");
             if (u is null) return e!;
-            if (announcements.ActiveAnnouncementCount() > 0) return Err.Detail(409, "an announcement is in progress; try again when it ends");
+            if (announcements.ActiveLiveCount() > 0) return Err.Detail(409, "an announcement is in progress; try again when it ends");
             var b = await Http.ReadBody<ServerUpdateApplyRequest>(ctx);
             var (status, detail) = serverUpdates.RequestApply(u.Username, b?.Version);
             return status == 202 ? Http.Json(new { ok = true, detail = "update requested; the server restarts when it is installed" }, 202)

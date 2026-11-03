@@ -34,6 +34,8 @@ public sealed class ControlSession : IAsyncDisposable
     {
         var session = new ControlSession(cfg, time, log);
         session._ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(Protocol.HeartbeatSeconds);
+        // ping/pong heartbeat: a server that stops answering for 30 s is treated as gone
+        session._ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(Protocol.StaleAfterSeconds);
 
         using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, connectTimeout.Token);

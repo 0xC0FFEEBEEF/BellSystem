@@ -1,0 +1,44 @@
+
+=== Gate A matrix 2026-11-03T15:57:54Z — VM schoolbell-lab (Windows 11 Pro 25H2 build 26200, HDA audio, 3 GB) ===
+--- [session] SchoolBell's own app session muted in the Volume Mixer + master 50%
+  before: master_volume=0.50 master_muted=False
+  before: pid=2316 session_muted=True session_volume=1.00 state=AudioSessionStateInactive
+  during: pid=2316 session_muted=True session_volume=1.00 state=AudioSessionStateInactive
+  during: master_volume=0.50 master_muted=False
+  after:  pid=2316 session_muted=True session_volume=1.00 state=AudioSessionStateInactive
+  after:  master_volume=0.50 master_muted=False
+format: 44100 Hz, 2 ch, 16-bit; analysed 6.41s from byte 10260480; loudest window -5.4 dBFS
+  audible at    58.466s for 2.960s, peak -5.4 dBFS
+  ring result: session-mute test [('User (WIN11-VM)', 'completed', None)]
+--- [locked] console session locked (Win+L equivalent), companion keeps the renderer
+  locked
+  logonui running: True
+format: 44100 Hz, 2 ch, 16-bit; analysed 6.01s from byte 11390976; loudest window -5.4 dBFS
+  audible at    64.834s for 3.020s, peak -5.4 dBFS
+  ring result: locked-session test [('User (WIN11-VM)', 'completed', None)]
+  server device state: ready_to_play | User (WIN11-VM) | connected True
+  2026-11-03T15:57:02.321Z INFO Client.Service.RendererRouter: active renderer: companion
+  2026-11-03T15:58:11.249Z INFO Client.Service.SchoolBellDeviceAgent: ring 'session-mute test' (ring-1dd3e62b517e490eadaa44364c66b3de) by labadmin -> completed
+  2026-11-03T15:59:08.447Z INFO Client.Service.SchoolBellDeviceAgent: ring 'locked-session test' (ring-ea1407449fad4cf7bad43b994a5847c2) by labadmin -> completed
+--- [crash] tray companion killed 4 s into a 20.6 s recorded announcement (master 40%)
+  before: master_volume=0.40 master_muted=False
+  announcement 7f47db28-296f-460f-aa8a-635a7d3f74c5
+  companion killed
+  2 s after kill: master_volume=0.80 master_muted=False
+  after end: master_volume=0.40 master_muted=False
+format: 44100 Hz, 2 ch, 16-bit; analysed 22.55s from byte 12476416; loudest window -9.3 dBFS
+  audible at    71.368s for 0.980s, peak -14.6 dBFS
+  audible at    73.248s for 2.100s, peak -11.7 dBFS
+  audible at    76.148s for 4.260s, peak -9.3 dBFS
+  audible at    81.348s for 0.520s, peak -16.3 dBFS
+  audible at    82.348s for 1.660s, peak -14.8 dBFS
+  audible at    84.888s for 2.620s, peak -13.1 dBFS
+  audible at    88.468s for 0.520s, peak -13.1 dBFS
+  audible at    89.388s for 0.940s, peak -14.5 dBFS
+  2026-11-03T15:59:18.527Z INFO Client.Service.RendererRouter: active renderer: service
+  2026-11-03T15:59:18.569Z WARN ServiceRenderer: restored volume left overridden by an interrupted announcement on 'Speakers (High Definition Audio Device)' (captured by companion)
+  2026-11-03T15:59:18.810Z WARN Client.Service.RendererRouter: announcement 7f47db28-296f-460f-aa8a-635a7d3f74c5: companion lost mid-stream; service renderer continues (ok)
+  2026-11-03T15:59:34.084Z INFO Client.Service.SchoolBellDeviceAgent: announcement 7f47db28-296f-460f-aa8a-635a7d3f74c5 finished: completed (ended_by=server)
+  2026-11-03T15:59:34.353Z INFO ServiceRenderer: volume restored on 'Speakers (High Definition Audio Device)' to master 40%
+  2026-11-03T15:59:34.355Z INFO ServiceRenderer: announcement 7f47db28-296f-460f-aa8a-635a7d3f74c5 rendering finished (underruns 0, dropped 0 samples)
+  companion restarted by its logon task

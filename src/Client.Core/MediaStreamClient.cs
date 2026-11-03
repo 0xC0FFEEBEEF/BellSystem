@@ -22,6 +22,8 @@ public sealed class MediaStreamClient : IAsyncDisposable
     {
         var client = new MediaStreamClient(announcementId);
         client._ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(Protocol.HeartbeatSeconds);
+        // ping/pong heartbeat: a server that stops answering for 30 s is treated as gone
+        client._ws.Options.KeepAliveTimeout = TimeSpan.FromSeconds(Protocol.StaleAfterSeconds);
         using var connectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, connectTimeout.Token);
         await client._ws.ConnectAsync(new Uri(cfg.MediaWsUrl(announcementId, token)), linked.Token);

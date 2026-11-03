@@ -102,6 +102,9 @@ if (uiFiles is not null)
 app.UseWebSockets(new WebSocketOptions
 {
     KeepAliveInterval = TimeSpan.FromSeconds(Protocol.HeartbeatSeconds), // ping every 10 s
+    // A device that stops answering pings for 30 s is disconnected, so "connected" in the
+    // registry always means contact within the stale threshold (PROTOCOL.md §3).
+    KeepAliveTimeout = TimeSpan.FromSeconds(Protocol.StaleAfterSeconds),
 });
 app.UseMiddleware<SessionMiddleware>();
 app.UseMiddleware<CsrfMiddleware>();

@@ -209,8 +209,9 @@ internal sealed class ServicePipeClient : IDisposable
             _ = SendAsync(PipeTypes.VolumeOverride, new PipeVolumeOverride(rec));
         };
         _engine = engine;
-        // a local capture left by a crashed previous companion on this account
-        if (LoadLocalRecovery() is { } pending && engine.TryRecoverVolume(pending)) SaveLocalRecovery(null);
+        // Crash recovery comes only from the service's durable record (volume.recover), never
+        // from a stale local copy: the service may already have restored and taken over.
+        SaveLocalRecovery(null);
         _log.LogInformation("renderer slot granted: this companion plays bells and announcements");
         _ = SendStatusAsync();
     }
