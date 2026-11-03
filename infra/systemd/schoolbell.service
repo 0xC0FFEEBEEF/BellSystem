@@ -1,0 +1,24 @@
+[Unit]
+Description=SchoolBell server (bell + announcement control)
+Documentation=https://github.com/local/schoolbell (see repo docs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=schoolbell
+Group=schoolbell
+ExecStart=/opt/schoolbell/server/SchoolBellServer
+Environment=SchoolBell__Urls=http://127.0.0.1:5001
+Environment=SchoolBell__DataDir=/var/lib/schoolbell
+EnvironmentFile=-/etc/schoolbell/env
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/schoolbell /var/log/schoolbell
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

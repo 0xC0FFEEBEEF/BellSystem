@@ -13,3 +13,8 @@ data-dev/
 dist/
 *.user
 TestResults/
+.probe-whisper/
+.probe-tts/
+.probe-voices/
+probe.wav
+probe.wav.txt
