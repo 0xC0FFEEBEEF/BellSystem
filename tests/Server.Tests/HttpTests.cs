@@ -38,11 +38,11 @@ public class AuthHttpTests
     }
 
     [Fact]
-    public async Task Setup_weak_password_is_400()
+    public async Task Setup_empty_password_is_400()
     {
         using var app = new TestApp();
         await app.FetchCsrf();
-        var res = await app.Post("/api/auth/setup", new { code = TestApp.SetupCode, username = "admin", password = "short9!" });
+        var res = await app.Post("/api/auth/setup", new { code = TestApp.SetupCode, username = "admin", password = "" });
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 

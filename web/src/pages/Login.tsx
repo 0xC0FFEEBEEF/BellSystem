@@ -29,7 +29,7 @@ export function Login({ onDone }: { onDone: () => void }) {
         {mode === "setup" && <Field label="Setup code" hint="Printed once in the server log at first start (journalctl -u schoolbell | grep 'SETUP CODE').">
           <input value={code} onChange={(e) => setCode(e.target.value)} autoComplete="one-time-code" required /></Field>}
         <Field label="Username"><input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required autoFocus /></Field>
-        <Field label="Password" hint={mode === "setup" ? "At least 12 characters." : undefined}>
+        <Field label="Password" hint={undefined}>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "setup" ? "new-password" : "current-password"} required /></Field>
         {error && <p className="error" role="alert">{error}</p>}
         <button className="primary" disabled={busy}>{mode === "login" ? "Sign in" : "Create administrator and sign in"}</button>

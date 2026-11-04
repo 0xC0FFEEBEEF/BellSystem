@@ -17,9 +17,10 @@ public sealed record AuthResult(int Status, string? Detail, AuthUser? User = nul
 /// Never logs passwords or session tokens.
 public sealed class AuthService
 {
-    public const int DefaultMinPasswordLength = 12;
-    /// SchoolBell:MinPasswordLength (default 12; never below 6). Lowering it is a lab-only choice.
-    public int MinPasswordLength => Math.Max(6, _cfg.MinPasswordLength);
+    public const int DefaultMinPasswordLength = 1;
+    /// No length rule by default (owner's choice): a password must simply be non-empty.
+    /// A school can require longer ones with SchoolBell__MinPasswordLength in /etc/schoolbell/env.
+    public int MinPasswordLength => Math.Max(1, _cfg.MinPasswordLength);
     public const int MaxFailedAttempts = 8;          // per username+IP within the window
     public const long LockoutWindowMs = 5 * 60_000;  // 5 minutes
     public const long SessionLifetimeMs = 12 * 60 * 60_000;
@@ -218,7 +219,7 @@ public sealed class AuthService
         if (role is not null && role is not ("admin" or "operator" or "viewer"))
             return (400, "role must be admin, operator or viewer");
         if (password is not null && password.Length < MinPasswordLength)
-            return (400, $"password must be at least {MinPasswordLength} characters");
+            return (400, MinPasswordLength <= 1 ? "a password is required" : $"password must be at least {MinPasswordLength} characters");
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE users SET
@@ -262,7 +263,7 @@ public sealed class AuthService
     {
         if (ValidateUsername(username) is string uerr) return new(400, uerr);
         if (password.Length < MinPasswordLength)
-            return new(400, $"password must be at least {MinPasswordLength} characters");
+            return new(400, MinPasswordLength <= 1 ? "a password is required" : $"password must be at least {MinPasswordLength} characters");
         return null;
     }
 

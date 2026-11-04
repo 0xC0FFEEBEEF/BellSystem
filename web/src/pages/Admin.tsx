@@ -43,20 +43,20 @@ function Users() {
               <td>{u.group_scope.length ? u.group_scope.map(gname).join(", ") : <span className="dim">all groups</span>}</td>
               <td><input type="checkbox" checked={u.schoolwide_broadcast} aria-label="Schoolwide broadcast permission"
                 onChange={(e) => run(async () => { await put(`/api/admin/users/${u.id}`, { schoolwide_broadcast: e.target.checked }); users.reload(); })} /></td>
-              <td><button className="link" onClick={() => { const pw = prompt(`New password for ${u.username} (12+ characters)`); if (pw) run(() => put(`/api/admin/users/${u.id}`, { password: pw }), "Password changed"); }}>Reset password</button>
+              <td><button className="link" onClick={() => { const pw = prompt(`New password for ${u.username}`); if (pw) run(() => put(`/api/admin/users/${u.id}`, { password: pw }), "Password changed"); }}>Reset password</button>
                 <button className="link" onClick={() => run(async () => { await del(`/api/admin/users/${u.id}`); users.reload(); }, "Deleted")}>Delete</button></td></tr>))}</tbody></table>
         <p className="dim small">Operators announce and edit schedules within their groups; “schoolwide” lets them address every endpoint. Viewers see status and history only. Rights are enforced by the server, not just this page.</p>
       </Card>
       <Card title="Add account">
         <Field label="Username"><input value={n.username} onChange={(e) => setN({ ...n, username: e.target.value })} /></Field>
-        <Field label="Temporary password" hint="12+ characters"><input type="password" value={n.password} onChange={(e) => setN({ ...n, password: e.target.value })} autoComplete="new-password" /></Field>
+        <Field label="Temporary password"><input type="password" value={n.password} onChange={(e) => setN({ ...n, password: e.target.value })} autoComplete="new-password" /></Field>
         <Field label="Role"><select value={n.role} onChange={(e) => setN({ ...n, role: e.target.value })}>
           <option value="operator">Office operator</option><option value="viewer">Read-only viewer</option><option value="admin">Administrator</option></select></Field>
         <label className="check"><input type="checkbox" checked={n.schoolwide_broadcast} onChange={(e) => setN({ ...n, schoolwide_broadcast: e.target.checked })} /> May address all endpoints</label>
         <fieldset><legend>Limit to groups (none = all)</legend>{(groups.data ?? []).map((g) => (
           <label key={g.id} className="check"><input type="checkbox" checked={n.group_scope.includes(g.id)}
             onChange={(e) => setN({ ...n, group_scope: e.target.checked ? [...n.group_scope, g.id] : n.group_scope.filter((x) => x !== g.id) })} /> {g.name}</label>))}</fieldset>
-        <button className="primary" disabled={busy || !n.username || n.password.length < 12}
+        <button className="primary" disabled={busy || !n.username || n.password.length < 1}
           onClick={() => run(async () => { await post("/api/admin/users", n); setN({ ...n, username: "", password: "" }); users.reload(); }, "Account created")}>Create</button>
       </Card>
     </div>

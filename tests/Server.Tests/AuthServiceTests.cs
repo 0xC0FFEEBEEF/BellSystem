@@ -33,13 +33,13 @@ public class AuthServiceTests
     }
 
     [Fact]
-    public void Password_policy_requires_12_chars_on_admin_created_accounts()
+    public void Password_policy_requires_a_non_empty_password_with_no_length_rule_by_default()
     {
         using var env = new TestEnv();
-        var res = env.Auth.CreateUser("admin", "alice", "short9!", "viewer", [], false);
+        var res = env.Auth.CreateUser("admin", "alice", "", "viewer", [], false);
         Assert.Equal(400, res.Status);
-        Assert.Contains("12", res.Detail!);
-        Assert.Equal(201, env.Auth.CreateUser("admin", "alice", "correct-horse99!", "viewer", [], false).Status);
+        Assert.Contains("required", res.Detail!);
+        Assert.Equal(201, env.Auth.CreateUser("admin", "alice", "pw", "viewer", [], false).Status);
         // username policy
         Assert.Equal(400, env.Auth.CreateUser("admin", "BAD USER!", "correct-horse99!", "viewer", [], false).Status);
         // duplicate
