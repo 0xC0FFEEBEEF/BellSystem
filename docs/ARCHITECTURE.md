@@ -1,28 +1,32 @@
 # SchoolBell architecture
 
-Governing spec: `uploads/schoolbell-application-plan.md`. Protocol: `PROTOCOL.md` (v1, frozen).
+Protocol: `PROTOCOL.md` (v1, plus additive v1.1 messages). Status and evidence: `HANDOFF.md`.
 
 ## Shape
 
-- **Server** (`src/Server`, ASP.NET Core, net8.0): listens on `127.0.0.1:5001` only. TLS/HTTPS is
+- **Server** (`src/Server`, ASP.NET Core, net10.0): listens on `127.0.0.1:5001` only. TLS/HTTPS is
   terminated by Caddy in front (private school CA or school certificate). SQLite (WAL) in
   `/var/lib/schoolbell`. No inbound connections to classroom machines — devices dial out (WSS).
 - **Contracts** (`src/Contracts`, frozen): one shared definition of every control message, the
   signed schedule manifest, the SBMF binary media frame, the enrollment/auth crypto, and stable
   occurrence IDs. Server, clients, simulator, and tests all round-trip the same fixtures in
   `contracts/fixtures/`.
-- **Client.Service** (net8.0-windows): owns identity, the control connection, the durable bell
-  cache and claim ledger, receipt queue, keep-awake policy thread, and the local named pipe.
-  Session 0 — survives sign-out and no-user boot (connection-side only).
-- **Client.Desktop** (WinForms tray): owns audio (NAudio WASAPI): bells, recorded playback, live
-  announcement rendering, master endpoint volume capture/override/restore, chime, history window.
-  Exactly one renderer per machine (service arbitrates the pipe slot).
-- **Client.Core** (net8.0): everything testable without Windows APIs — reconnect backoff (full
+- **Client.Service** (net10.0-windows): owns identity, the control connection, the durable bell
+  cache and claim ledger, receipt queue, keep-awake policy thread, the updater, and the local named
+  pipe. Runs in session 0, so it survives sign-out; when no tray companion is connected it renders
+  audio itself (silent before the first sign-in since boot, see KNOWN-ISSUES).
+- **Client.Desktop** (WinForms tray): renders bells, recorded and live announcements for the
+  signed-in console session, and shows status and the history window.
+- **Client.Audio** (NAudio WASAPI): the playback engine both renderers use, with master endpoint
+  and per-app session volume capture/override/restore and crash recovery. Exactly one renderer per
+  machine: the console session's companion if present, otherwise the service.
+- **Client.Core** (net10.0): everything testable without Windows APIs — reconnect backoff (full
   jitter, 30 s cap), bell scheduler (monotonic due times, 2 s missed-bell grace, expired batch,
   live-speech suppression), claim-before-play ledger, receipt queue, manifest verification,
   atomic sound cache, jitter buffer, keep-awake policy store with absolute offline expiry.
-- **Web UI** (`src/Server/wwwroot`): office pages — dashboard, endpoint directory, schedules and
-  calendar, live push-to-talk + record-then-send, history, `/admin`. Cookie session + CSRF
+- **Web UI** (`web/`, React + TypeScript, built into `web/dist` and served by the server): Home
+  (who hears it, hold to talk, ring now, next bells), Announce, Bells (schedules, calendar, sounds),
+  Endpoints, History, `/admin`. Cookie session + CSRF
   double-submit; roles admin/operator/viewer enforced in the API, not just pages.
 
 ## Key invariants (from the plan, implemented at the protocol level)
@@ -50,9 +54,12 @@ Governing spec: `uploads/schoolbell-application-plan.md`. Protocol: `PROTOCOL.md
   policies honored offline, display left on by default; cannot defeat manual sleep/lid/shutdown
   and never unlocks a screen (documented to operators).
 
-## Deliberated deviations from the plan's recommendations
+## Updates
 
-- **.NET 8 LTS** instead of the plan's recommended .NET 10: the available lab ships .NET 8.
-- **Vanilla ES-module SPA** served from `wwwroot` instead of React+TS: fewer build moving parts
-  on the target box; required behaviors are unchanged. See KNOWN-ISSUES.
-- See KNOWN-ISSUES for the manifest HMAC signing model and the lab-blocked Windows tests.
+- **Server**: the app checks GitHub Releases, verifies the ECDSA P-256 signature of
+  `release-manifest.json` against the pinned release key, and writes a request file. A root updater
+  (systemd path unit) re-verifies everything, backs up, installs, health-checks and rolls back. The
+  web app never runs as root.
+- **Windows clients**: staged rollouts with per-device download links; each computer verifies the
+  signature, waits for a quiet period, installs through an update runner, and reinstalls its previous
+  version if the new one does not report healthy.

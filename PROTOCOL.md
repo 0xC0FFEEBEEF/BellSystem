@@ -305,4 +305,4 @@ client updates (a second manifest inside the server bundle lists only the Window
 ### Device status additions
 `device.status` gains optional `available_outputs` (speaker names, for the /admin chooser) and
 `renderer_owner` (`companion` | `service`). Renderer reasons now include `no_user_since_boot`
-(see TEST-RESULTS: session-0 audio before the first sign-in is silent on Windows 11 25H2).
+(see docs/KNOWN-ISSUES.md: session-0 audio before the first sign-in is silent on Windows 11 25H2).

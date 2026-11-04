@@ -1,14 +1,14 @@
 # Windows deployment from Admin
 
-Open **Admin → Enrollment**, enter a label, computer limit, and validity in hours,
+Open **Admin → Windows deployment**, enter a label, computer limit, and validity in hours,
 then select **Download Windows Installer**. Deploy the downloaded `SchoolBellSetup.exe`
 with the PDQ parameters shown on that page. Only the EXE is required on each PC.
 Run the PDQ step as an administrator and accept exit code 0 only.
 
 The EXE contains a fresh enrollment token and the server's school CA certificate,
-when configured. The server address remains a `/SERVER=host:port` parameter.
+when configured. The server address remains a parameter (`/SERVER=host:port` or `--server host:port`).
 For an interactive installation, the installer asks for the server address.
-The token expires and can be revoked in Enrollment. Its expiration does not
+The token expires and can be revoked under **Enrollment tokens**. Its expiration does not
 interrupt computers that have already enrolled. Treat the download as private
 because it permits new enrollments until it expires, is revoked, or runs out of uses.
 

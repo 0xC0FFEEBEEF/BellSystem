@@ -1,49 +1,46 @@
-# SchoolBell known issues and honest limits
+# SchoolBell known issues and limits
 
-1. **Manifest signing is HMAC with a school-wide key.** `src/Server/PublishService.cs` signs the
-   schedule manifest with `DeriveDeviceVerifyKey(trust_pin)` — the same key every device verifies
-   with, because the trust pin is per-school. An attacker who obtains one enrolled machine's
-   config (pin + secret) could forge a schedule manifest that every device in the school accepts.
-   Fix candidates (post-pilot, protocol revision — coordinate before changing): per-device manifest
-   signatures (outbox events are already per-device) or Ed25519 (server private key, public key in
-   the enrollment file). Flagged honestly by the implementing agent; not silently changed.
-2. **Windows audio path unproven in this environment.** The Windows lab was down for the whole
-   build session (`win-a is not built yet`; bug report `20261103-0938-3e3e` closed
-   `could_not_fix`). Gate A (real WASAPI playback/volume restore/locked-session/no-user-boot),
-   Gate B (browser mic → server → Windows renderer), and SchoolBellSetup.exe install/repair/
-   uninstall tests are **not executed**. Audio, service, and installer code compile (net8.0-windows
-   via EnableWindowsTargeting) and client logic is tested on Linux, but audible output on real
-   Windows is unverified.
-3. **Crash window for bells.** A claim can exist without audible playback (crash between claim and
-   speaker). Such occurrences surface as `started`/`unknown`, never `completed`. SchoolBell is
-   at-most-once per occurrence; exactly-once audible delivery is never claimed.
-4. **Offline expired bells are never replayed** (by design — a machine back from a week of downtime
-   must not blast a day of late bells), but that means missed bells are silent: the office sees
-   `expired` receipts, not sound.
-5. **Targeted transcripts** are office-only (no verified-identity integration yet); local targeted
-   history is cleared on identity change, but a classroom speaker is not a private medium.
-6. **Deviation: .NET 8 instead of the recommended .NET 10 LTS** (lab availability). Pinned net8.0.
-7. **Deviation: vanilla ES-module SPA instead of React+TS.** Same required behaviors; fewer build
-   steps on the target box.
-8. **systemd install path untested in a real systemd host** in this environment (no root on this VM;
-   cluster nodes have no systemd). install.sh was written for and against Ubuntu 24.04 conventions
-   and its binary-swap/state-preservation logic was exercised in sandbox mode; see TEST-RESULTS.
-9. **Inno installer script uncompiled** until a Windows build host (the lab) is available — no
-   SchoolBellSetup.exe artifact exists yet; build command is documented in OPERATIONS.
-10. **Transcription pipeline has no engine wired by default**: whisper.cpp (`whisper.cpp` server,
-    small.en) is built on the cluster and the server-side job queue is implemented and config-gated
-    (`transcription_enabled`), but the loopback worker's end-to-end run status is recorded in
-    TEST-RESULTS; transcripts are `pending` until the worker consumes them.
-11. **DST policy**: nonexistent local bell times are skipped (logged in the publish report);
-    ambiguous times fire once at the first mapping. A school that wants the second mapping must
-    encode it as a date override.
-12. **No device-count limit exists**; resource pressure is bounded only by visible configured
-    queues — a school should watch `/api/diagnostics` (queue depths, dropped-frame counters) as
-    enrollment grows toward the tested simulator ceiling.
+Current as of release 0.9.4. `HANDOFF.md` §5 lists what was verified and how.
 
-## Update 2026-11-03 (second session) — see HANDOFF.md §8 for the current list
-
-- Items 2, 6, 7, 9 and 10 above are superseded: Windows audio, the installer and the browser path were tested
-  on a Windows 11 VM; the solution now targets .NET 10; the UI is React + TypeScript; SchoolBellSetup.exe is
-  built with Inno Setup 6.7.3; Whisper is intentionally off for this pilot.
-- New: pre-login (no-user-since-boot) audio is silent on Windows 11 25H2 — reported as no_renderer/unknown.
+1. **Silent before the first sign-in since boot.** Windows 11 (25H2, tested in a VM) plays session-0
+   audio as digital silence until someone has signed in once since boot. A locked or signed-out
+   computer plays normally after that. The client reports `no_renderer (no_user_since_boot)` and its
+   receipts are `unknown`, never `completed`. Keep classroom computers signed in (locked is fine), or
+   test the school's own hardware.
+2. **Schedule manifests are signed with a school-wide HMAC key** derived from the per-school trust pin.
+   Someone who copies one enrolled computer's configuration could forge a schedule that every computer in
+   the school accepts. The fix is asymmetric signatures (the ECDSA release-key code already exists); it
+   needs a protocol revision.
+3. **The installer is not Authenticode-signed** (no code-signing certificate), so SmartScreen may warn.
+   Release integrity comes from `SHA256SUMS` and the signed `release-manifest.json`.
+4. **The first service start after an install or update is slow** (97 s on a 3 GB VM while Defender
+   scans about 120 MB). The installer and update runner pre-load the files and retry the start.
+5. **Crash window for bells.** A bell can be claimed and then not heard if the computer crashes between
+   the claim and the speaker. Those show as `started` or `unknown`, never `completed`. Delivery is
+   at most once per bell.
+6. **Missed bells are never replayed.** A computer that was off or offline when a bell was due records
+   it as `expired` rather than ringing late.
+7. **Slow networks.** A computer that cannot keep up with live audio builds a backlog in TCP and proxy
+   buffers the server cannot see. Renderers discard audio older than 2 seconds, so nothing plays late,
+   but the bandwidth is wasted. Real flow control needs device acknowledgements.
+8. **Computer names must be unique.** Re-enrolling by the same name reuses that device record
+   (settings and groups kept), so two machines with one name fight over one identity.
+9. **Windows client update rollback is untested.** A successful update (0.9.1 → 0.9.2) was pushed and
+   installed on the lab VM. Reinstalling the previous version after a broken update relies on
+   `C:\ProgramData\SchoolBell\updates\installed-setup.exe`, which the installer saves, but a broken
+   client build has not been rolled out to test it.
+10. **Server self-update needs a public repository.** The update check reads GitHub Releases without a
+    token.
+11. **Not yet tested on Windows:** keep-awake, a scheduled bell firing on a real classroom PC (ring-now
+    uses the same playback path), and output changes on real hardware (headphones, HDMI, RDP, fast user
+    switching).
+12. **Transcription is off.** The Whisper adapter and job queue exist (`transcription_enabled=false`) but
+    no engine ships with the release.
+13. **Daylight saving.** Bell times that do not exist on the change day are skipped (logged in the
+    publish report); ambiguous times ring once, at the first occurrence. Encode anything else as a date
+    override.
+14. **No device-count limit.** Resource use is bounded only by the configured queues. Watch
+    `/api/diagnostics` (queue depths, dropped frames) as enrollment grows past the 500 simulated devices
+    that were tested.
+15. **Targeted announcement transcripts stay office-only** (there is no verified-identity integration),
+    and a classroom speaker is not a private medium.

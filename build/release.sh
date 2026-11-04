@@ -116,7 +116,7 @@ cp -r install/server/systemd install/server/caddy "$SRV/"
 cp build/release-signing.pub.pem "$SRV/"
 echo "$VERSION" > "$SRV/VERSION"
 cp LICENSE "$SRV/LICENSE"
-cp README.md OPERATIONS.md KNOWN-ISSUES.md LICENSES.md "$SRV/" 2>/dev/null || true
+cp README.md LICENSES.md docs/OPERATIONS.md docs/KNOWN-ISSUES.md docs/windows-deployment.md "$SRV/"
 chmod 0755 "$SRV/install.sh" "$SRV/uninstall.sh" "$SRV/schoolbell-update.sh"
 tar -C "$STAGE/server" --owner=0 --group=0 -czf $DIST/server/schoolbell-server-linux-x64.tar.gz "schoolbell-$VERSION"
 cp install/server/install.sh $DIST/server/install.sh
