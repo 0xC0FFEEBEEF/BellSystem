@@ -249,6 +249,9 @@ public static class ExtraEndpoints
         {
             var (u, e) = Need(ctx, "admin");
             if (u is null) return e!;
+            // the Windows installer (~40 MB) exceeds Kestrel's 30 MB default body limit
+            if (ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = 600L * 1024 * 1024;
             if (!ctx.Request.HasFormContentType) return Err.Detail(400, "multipart with 'setup', 'manifest' and 'signature' files is required");
             var form = await ctx.Request.ReadFormAsync();
             var setup = form.Files.GetFile("setup");
