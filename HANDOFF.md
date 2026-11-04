@@ -63,9 +63,8 @@ Exit codes: 0 ok · 2 bad or missing argument · 10 installed but enrollment fai
 
 ## 4. Releases
 
-**v0.9.5** (commit `53f3c6a`, 2026-11-04) fixes schedule delivery and is built in `dist/` (server bundle sha256
-`a11f5ed3…8ebd6`, installer `4a68605f…9c4c`); publishing it on GitHub is the owner's step. Published on GitHub so far:
-**v0.9.4** (commit `c60cf0e`, 2026-11-04). Assets:
+**v0.9.5** (commit `53f3c6a`, 2026-11-04) fixes schedule delivery and is the latest GitHub release (server bundle sha256
+`a11f5ed3…8ebd6`, installer `4a68605f…9c4c`). Also published: **v0.9.4** (commit `c60cf0e`, 2026-11-04). Assets:
 `schoolbell-server-linux-x64.tar.gz` (sha256 `fdae1554…bfdd9`), `install.sh`, `SchoolBellSetup.exe`
 (sha256 `1e880f9d…c151`, unsigned), `release-manifest.json` + `.sig`, `SHA256SUMS`, `LICENSE`,
 `LICENSES.md`. Version numbers only go up: a server already on a version never sees a rebuild of the
