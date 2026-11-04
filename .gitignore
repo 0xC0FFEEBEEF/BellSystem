@@ -21,3 +21,11 @@ probe.wav.txt
 .build/
 web/node_modules/
 web/dist/
+# deployment material: never commit enrollment files, test kits, certificates, keys or installers
+*enroll*.json
+deploy/windows-test-kit/
+SchoolBell-test/
+*.pfx
+*.key
+*.key.pem
+*.exe

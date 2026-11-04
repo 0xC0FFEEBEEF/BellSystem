@@ -132,6 +132,8 @@ public sealed class ControlHub
         using (var conn = _db.Open())
             conn.Run("UPDATE devices SET last_seen = $t, client_version = $v WHERE device_id = $d",
                 ("$t", nowMs), ("$v", resp.ClientVersion is { Length: > 0 and <= 64 } cv ? cv : null), ("$d", resp.DeviceId));
+        // a device that comes back running a rolled-out version has installed it (covers a lost update.status)
+        if (resp.ClientVersion is { Length: > 0 and <= 64 }) _updates?.OnDeviceVersion(resp.DeviceId, resp.ClientVersion);
 
         // 3) auth.ok
         var ok = ControlEnvelope.Create(Protocol.TAuthOk,

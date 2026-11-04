@@ -125,6 +125,9 @@ public sealed class Worker : BackgroundService
     {
         while (!ct.IsCancellationRequested)
         {
+            // the update runner writes its result after this (new) service is already running
+            if (_updater?.TakeCompletedResult() is { } done)
+                await _agent!.ReportUpdateStatusAsync(done);
             var (_, sid) = _users!.GetActiveUser();
             if (sid is not null && !UserSeenThisBoot())
             {

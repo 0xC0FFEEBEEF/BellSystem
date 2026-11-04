@@ -317,6 +317,17 @@ public sealed class ClientUpdateService
             """, ("$s", s.State), ("$e", s.Error), ("$t", NowMs), ("$d", deviceId), ("$v", s.Version));
     }
 
+    public void OnDeviceVersion(string deviceId, string clientVersion)
+    {
+        var bare = clientVersion.Split('+')[0];
+        using var conn = _db.Open();
+        conn.Run("""
+            UPDATE client_rollout_devices SET state = 'installed', error = NULL, updated_at = $t
+            WHERE device_id = $d AND state NOT IN ('installed','cancelled')
+              AND rollout_id IN (SELECT rollout_id FROM client_rollouts WHERE version = $v)
+            """, ("$t", NowMs), ("$d", deviceId), ("$v", bare));
+    }
+
     private static string Safe(string v) => new(v.Where(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-').ToArray());
 }
 

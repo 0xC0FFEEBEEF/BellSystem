@@ -128,7 +128,7 @@ browser→speaker. Raw JSON: `docs/evidence/load/`.
   SchoolBell 0.9.0 is currently installed by the real installer.
 - **Lab server** (the owner is testing against it): **ephemeral data under `/tmp/claude-1000/.../scratchpad/lab`**.
   Start/stop with `scripts/lab/lan-up.sh` / `lab-down.sh`. Office URL https://10.1.0.191:8443 (also 10.1.16.63,
-  192.168.122.1), CA `.../lab/lab-ca.crt`. Accounts: `user` / `<lab-password>` (lab-only, min length lowered
+  192.168.122.1), CA `.../lab/lab-ca.crt`. Accounts: a lab-only office account (min length lowered
   via `SchoolBell__MinPasswordLength=6`) and `labadmin` (password file in the lab dir). The host's `ufw`
   must allow 8443/tcp. The binary is `dist/publish/server-lan` (built before the sound-packaging fix; this lab
   DB already has its sounds).
