@@ -49,3 +49,7 @@ journalctl -u schoolbell | grep 'SETUP CODE'   # first-run admin bootstrap
 ```
 
 Artifacts and checksums land in `dist/` (gitignored). See `docs/OPERATIONS.md`.
+
+For Windows deployment, **Admin → Enrollment → Download Windows Installer** creates
+one EXE with enrollment and the school CA certificate included. The page shows the
+PDQ parameters; the server address stays a parameter. See [Windows deployment](docs/windows-deployment.md).

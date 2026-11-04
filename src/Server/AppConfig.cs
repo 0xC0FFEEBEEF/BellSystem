@@ -17,6 +17,8 @@ public sealed class ServerConfig
     public string[] AllowedWsOrigins { get; set; } = []; // browser WS origin allow-list
     public string? TestSetupCode { get; set; }          // test-only deterministic bootstrap code
     public string ReleaseKeyPath { get; set; } = "/etc/schoolbell/release-signing.pub.pem";
+    public string DeploymentBundlePath { get; set; } = "";
+    public string DeploymentCaPath { get; set; } = "/etc/schoolbell/school-ca.cer";
     public string UpdateRepo { get; set; } = "0xC0FFEEBEEF/BellSystem";
     public string UpdateApiBase { get; set; } = "https://api.github.com";   // GitHub REST API (overridable for tests/mirrors)
     public string WhisperUrl { get; set; } = "http://127.0.0.1:8178";
@@ -42,6 +44,8 @@ public sealed class ServerConfig
             StaleAfterSeconds = ParseInt(s["StaleAfterSeconds"], 30),
             TestSetupCode = s["TestSetupCode"],
             ReleaseKeyPath = s["ReleaseKeyPath"] ?? "/etc/schoolbell/release-signing.pub.pem",
+            DeploymentBundlePath = s["DeploymentBundlePath"] ?? "",
+            DeploymentCaPath = s["DeploymentCaPath"] ?? "/etc/schoolbell/school-ca.cer",
             UpdateRepo = s["UpdateRepo"] ?? "0xC0FFEEBEEF/BellSystem",
             UpdateApiBase = (s["UpdateApiBase"] ?? "https://api.github.com").TrimEnd('/'),
             WhisperUrl = s["WhisperUrl"] ?? "http://127.0.0.1:8178",

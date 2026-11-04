@@ -1,0 +1,26 @@
+2026-11-03 — school-specific PDQ installer
+
+Build: bash build/pdq-installer.sh 0.9.1 schoolbell-lab deploy/windows-test-kit
+Published app binaries reused from dist/windows/app; installer rebuilt with Inno Setup.
+SHA256: 1697a3cfdf5a9863d747d04ff159c3dd361940e7f6fde5af0c123af8b2a54a42
+
+Embedded: enrollment JSON (server property removed), school CA certificate.
+Compiler log confirms both files compressed into Setup.
+Server address supplied at deployment time, not embedded.
+
+Fresh install in schoolbell-lab, run as LocalSystem via qemu guest agent.
+Previous client uninstalled: exit 0, config.json absent afterward.
+Target folder C:\pdq-bundle contained only SchoolBellSetup.exe.
+Arguments:
+/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /SERVER=10.1.0.191:8443 /LOG=C:\Windows\Temp\SchoolBell-bundle-test.log
+
+Result:
+exit: 0
+seconds: 287.7
+enrolled: True
+SchoolBell service: Running
+Restart needed: No
+
+Bounded helper used for enrollment and both warmups (120 seconds each).
+Shell syntax and git diff whitespace checks passed.
+Not verified: the owner's physical test PC or its original eight-minute PDQ deployment.

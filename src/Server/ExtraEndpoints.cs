@@ -332,6 +332,55 @@ public static class ExtraEndpoints
 
         // ---------------------------------------------------------------- enrollment file
 
+        app.MapGet("/api/admin/enrollment-installer", (HttpContext ctx) =>
+        {
+            var (u, e) = Need(ctx, "admin");
+            if (u is null) return e!;
+            var (template, version, error) = DeploymentInstaller.Open(cfg, ctx.RequestServices.GetRequiredService<ReleaseTrust>());
+            template?.Dispose();
+            ctx.Response.Headers.CacheControl = "no-store";
+            return Http.Json(new { available = error is null, version, detail = error });
+        });
+
+        app.MapPost("/api/admin/enrollment-installer", async (HttpContext ctx) =>
+        {
+            var (u, e) = Need(ctx, "admin");
+            if (u is null) return e!;
+            var (template, version, error) = DeploymentInstaller.Open(cfg, ctx.RequestServices.GetRequiredService<ReleaseTrust>());
+            if (template is null) return Err.Detail(409, error!);
+            string? ca;
+            try { ca = DeploymentInstaller.ReadCa(cfg); }
+            catch (Exception ex) when (ex is CryptographicException or InvalidDataException or IOException)
+            {
+                template.Dispose();
+                return Err.Detail(409, "The school CA certificate could not be loaded. Check DeploymentCaPath on the server.");
+            }
+            var b = await Http.ReadBody<EnrollFileRequest>(ctx) ?? new EnrollFileRequest(null, null, null, null);
+            var enrollment = ctx.RequestServices.GetRequiredService<EnrollmentService>();
+            var res = enrollment.CreateToken(u.Username, b.Label ?? "Windows deployment", Math.Clamp(b.ExpiresHours ?? 24, 1, 336),
+                Math.Clamp(b.MaxUses ?? 50, 1, 100_000), b.GroupScope ?? []);
+            if (res.Token is null || res.Info is null)
+            {
+                template.Dispose();
+                return Err.Detail(res.Status, res.Detail ?? "token not created");
+            }
+            var json = JsonSerializer.Serialize(new { v = 1, token = res.Token, expires_at = res.Info.ExpiresAt,
+                label = res.Info.Label, max_uses = res.Info.MaxUses });
+            var payload = new DeploymentPayload(json, ca);
+            ctx.Response.Headers.CacheControl = "no-store";
+            Audit.Add(db, u.Username, "enrollment.installer", $"version={version} token_id={res.Info.Id}");
+            return Results.Stream(async output =>
+            {
+                await using (template)
+                {
+                    await template.CopyToAsync(output, ctx.RequestAborted);
+                    using var footer = new MemoryStream();
+                    DeploymentPackage.Append(footer, payload);
+                    await output.WriteAsync(footer.ToArray(), ctx.RequestAborted);
+                }
+            }, "application/vnd.microsoft.portable-executable", "SchoolBellSetup.exe");
+        });
+
         app.MapPost("/api/admin/enrollment-file", async (HttpContext ctx) =>
         {
             var (u, e) = Need(ctx, "admin");

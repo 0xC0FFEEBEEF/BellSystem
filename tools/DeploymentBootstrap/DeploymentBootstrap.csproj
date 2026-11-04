@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SchoolBellDeploy</AssemblyName>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Contracts/DeploymentPackage.cs" Link="DeploymentPackage.cs" />
+    <EmbeddedResource Include="$(SetupPath)" LogicalName="SchoolBellSetup.exe" Condition="'$(SetupPath)' != ''" />
+  </ItemGroup>
+  <Target Name="RequireSetup" BeforeTargets="Publish" Condition="'$(SetupPath)' == '' Or !Exists('$(SetupPath)')">
+    <Error Text="SetupPath must name the generic Windows installer to embed." />
+  </Target>
+</Project>

@@ -87,7 +87,14 @@ if [ "$SKIP_INSTALLER" = 0 ]; then
   step "client release (signed) inside the server bundle"
   mkdir -p "$SRV/app/client-release/windows"
   cp $DIST/windows/SchoolBellSetup.exe "$SRV/app/client-release/windows/"
-  manifest "$SRV/app/client-release/release-manifest.json" "$DIST/windows/SchoolBellSetup.exe:windows/SchoolBellSetup.exe"
+  step "reusable Windows deployment launcher"
+  dotnet publish tools/DeploymentBootstrap/DeploymentBootstrap.csproj -c Release -r win-x64 --self-contained true \
+    -p:Version="$VERSION" -p:SetupPath="$REPO/$DIST/windows/SchoolBellSetup.exe" -p:ContinuousIntegrationBuild=true \
+    -o "$DIST/deployment" >>"$LOG" 2>&1
+  mkdir -p "$SRV/app/client-release/deployment"
+  cp "$DIST/deployment/SchoolBellDeploy.exe" "$SRV/app/client-release/deployment/"
+  manifest "$SRV/app/client-release/release-manifest.json" "$DIST/windows/SchoolBellSetup.exe:windows/SchoolBellSetup.exe" \
+    "$DIST/deployment/SchoolBellDeploy.exe:deployment/SchoolBellDeploy.exe"
   sign "$SRV/app/client-release/release-manifest.json"
 fi
 

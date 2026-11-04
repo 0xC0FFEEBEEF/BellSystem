@@ -1,0 +1,44 @@
+2026-11-04 — Admin Windows installer download
+
+Implementation:
+- Admin > Enrollment: label, computer limit, validity, Download Windows Installer, PDQ parameters.
+- Admin-only authenticated/CSRF-protected POST /api/admin/enrollment-installer.
+- Publisher-signed reusable launcher template is SHA256/size verified before download.
+- Server appends a fresh enrollment payload and optional public CA certificate.
+- No server address is embedded. No Windows compiler or private signing key is needed on Ubuntu.
+- Launcher contains the generic installer, extracts private enrollment files under restricted ACLs,
+  waits for setup, propagates the exit code, and removes temporary payload files.
+
+Automated validation:
+- Server tests: 121 passed (including 4 new deployment tests).
+- Client tests: 63 passed.
+- Web TypeScript/Vite build passed.
+- Locked solution restore, shell syntax, whitespace checks passed.
+- Browser checked enabled download button, limits, PDQ server parameter; screenshot in .build/admin-deployment-ui.png.
+
+Release:
+- bash build/release.sh 0.9.1 --iscc-vm schoolbell-lab completed.
+- dist/server/schoolbell-server-linux-x64.tar.gz includes the reusable deployment launcher.
+- Release manifest signature verified against build/release-signing.pub.pem.
+- Lab server restarted from the rebuilt server bundle with its existing data.
+- Nothing pushed to GitHub.
+
+Windows end-to-end (schoolbell-lab, LocalSystem):
+- Resumed paused VM and corrected stale Windows clock before final test.
+- Downloaded personalized EXE from the rebuilt server's admin endpoint.
+- Preserved previous config as a backup and removed active config to force enrollment.
+- Target folder contained only SchoolBellSetup.exe.
+- Arguments: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /SERVER=192.168.122.1:8443 /LOG=C:\Windows\Temp\SchoolBell-admin-rebuilt.log
+- exit_code: 0
+- elapsed_seconds: 309.6
+- enrolled: true
+- service: Running
+- payload_directories_remaining: 0
+
+An initial test embedded the old generic installer and stalled in its unbounded warmup.
+That test was stopped; the complete release was rebuilt and the final test above used
+its current bounded-warmup installer. The initial test is not counted as a passing install.
+
+Limits:
+- No Authenticode certificate; personalized downloads remain unsigned.
+- Fresh Ubuntu server installation/upgrade was not rerun for this feature; its full release build passed.

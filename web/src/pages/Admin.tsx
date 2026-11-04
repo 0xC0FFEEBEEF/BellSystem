@@ -95,26 +95,35 @@ function Groups() {
 
 function Enrollment() {
   const tokens = useData<any[]>("/api/admin/enrollment-tokens");
+  const installer = useData<{ available: boolean; version?: string; detail?: string }>("/api/admin/enrollment-installer");
   const devices = useData<{ items: Device[] }>("/api/devices?page_size=200");
   const [f, setF] = useState({ label: "Deployment", max_uses: 50, expires_hours: 24 });
   const { busy, run } = useBusy();
-  const download = () => run(async () => {
+  const download = (exe: boolean) => run(async () => {
     const csrf = document.cookie.match(/(?:^|;\s*)sb_csrf=([^;]+)/)?.[1] ?? "";
-    const res = await fetch("/api/admin/enrollment-file", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF": decodeURIComponent(csrf) }, body: JSON.stringify(f), credentials: "same-origin" });
+    const res = await fetch(exe ? "/api/admin/enrollment-installer" : "/api/admin/enrollment-file", { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF": decodeURIComponent(csrf) }, body: JSON.stringify(f), credentials: "same-origin" });
     if (!res.ok) throw new Error((await res.json()).detail);
     const blob = await res.blob();
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "schoolbell-enroll.json"; a.click();
+    const a = document.createElement("a"); const url = URL.createObjectURL(blob); a.href = url; a.download = exe ? "SchoolBellSetup.exe" : "schoolbell-enroll.json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
     tokens.reload();
-  }, "Enrollment file downloaded — keep it private");
+  }, exe ? "Windows installer downloaded — keep it private" : "Enrollment file downloaded — keep it private");
   return (
     <div className="grid">
-      <Card title="Create an enrollment file">
-        <p className="dim small">Give this file to SchoolBellSetup.exe (<code>--enrollment-file</code>). Each computer exchanges it once for its own credential. It expires; it is not a permanent password.</p>
+      <Card title="Windows deployment">
+        <p className="dim small">Download one EXE with enrollment and the school certificate included. Each computer receives its own credential. The expiration and computer limit below apply to new installations; enrolled computers keep working.</p>
         <Field label="Label"><input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
         <Field label="Computers it may enroll"><input type="number" min={1} value={f.max_uses} onChange={(e) => setF({ ...f, max_uses: Number(e.target.value) })} /></Field>
         <Field label="Valid for (hours)"><input type="number" min={1} max={336} value={f.expires_hours} onChange={(e) => setF({ ...f, expires_hours: Number(e.target.value) })} /></Field>
-        <button className="primary" disabled={busy} onClick={download}>Download schoolbell-enroll.json</button>
-        <pre className="code">SchoolBellSetup.exe --silent --server {location.host} --enrollment-file C:\Deploy\schoolbell-enroll.json --ca-file C:\Deploy\school-ca.cer</pre>
+        <button className="primary" disabled={busy || !installer.data?.available} onClick={() => download(true)}>Download Windows Installer</button>
+        {installer.data?.available && <p className="dim small">Windows client {installer.data.version}. Deploy only SchoolBellSetup.exe and run as an administrator.</p>}
+        {installer.data && !installer.data.available && <p className="dim small">{installer.data.detail}</p>}
+        <Field label="PDQ parameters"><pre className="code">/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /SERVER={location.host} /LOG="C:\Windows\Temp\SchoolBell-setup.log"</pre></Field>
+        <p className="dim small">The server address is a parameter; it is not included in the EXE. Keep the installer private and download a fresh copy when enrollment expires or its computer limit is reached.</p>
+        <details><summary>Separate enrollment file (advanced)</summary>
+          <button disabled={busy} onClick={() => download(false)}>Download schoolbell-enroll.json</button>
+          <p className="dim small">For the generic installer, supply this file with --enrollment-file and your CA certificate with --ca-file if required.</p>
+        </details>
       </Card>
       <Card title="Enrollment tokens">
         <table><thead><tr><th>Label</th><th>Used</th><th>Expires</th><th /></tr></thead>
