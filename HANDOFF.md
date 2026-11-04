@@ -63,7 +63,9 @@ Exit codes: 0 ok · 2 bad or missing argument · 10 installed but enrollment fai
 
 ## 4. Releases
 
-Published on GitHub: **v0.9.4** (commit `c60cf0e`, 2026-11-04), the only release. Assets:
+**v0.9.5** (commit `53f3c6a`, 2026-11-04) fixes schedule delivery and is built in `dist/` (server bundle sha256
+`a11f5ed3…8ebd6`, installer `4a68605f…9c4c`); publishing it on GitHub is the owner's step. Published on GitHub so far:
+**v0.9.4** (commit `c60cf0e`, 2026-11-04). Assets:
 `schoolbell-server-linux-x64.tar.gz` (sha256 `fdae1554…bfdd9`), `install.sh`, `SchoolBellSetup.exe`
 (sha256 `1e880f9d…c151`, unsigned), `release-manifest.json` + `.sig`, `SHA256SUMS`, `LICENSE`,
 `LICENSES.md`. Version numbers only go up: a server already on a version never sees a rebuild of the
@@ -82,7 +84,7 @@ verified on Ubuntu 24.04.5 with systemd (privileged rootless container) · **SIM
 
 | Requirement | Status | Evidence / notes |
 |---|---|---|
-| Scheduled bells from the 7-day signed cache; stable IDs, DST, overrides, missed-bell grace, dedupe | UNIT (+ server core from the earlier session) | `PublishTests`, `BellSchedulerTests`. A scheduled bell firing on Windows was not watched live (ring-now uses the same renderer path). |
+| Scheduled bells from the 7-day signed cache; stable IDs, DST, overrides, missed-bell grace, dedupe | UNIT (+ server core from the earlier session) | `PublishTests`, `BellSchedulerTests`, `LargeManifestTests`. **Up to 0.9.4 no real schedule was ever accepted**: a school week is well over 32 KB and clients dropped larger messages (found at the first school, 25 computers at revision 0; fixed in 0.9.5, see PROTOCOL.md `max_message_bytes`). A scheduled bell firing on Windows was not watched live. |
 | Ring now (UI button, sound choice, everyone/group/selected) | WIN, UNIT | audible 2.92 s, 768 ms after the press; dedupe, expiry and hash tests |
 | Customizable bell sounds (upload, replace std-bell, delete) | UNIT, UI | `ExtensionTests`. Replacing a sound needs a schedule re-publish for cached bells. |
 | Volume override: master and app session, restore after success / crash | WIN | gate-a-matrix.txt: 30%+muted → 80% → 30%+muted; app-session mute captured and restored |
