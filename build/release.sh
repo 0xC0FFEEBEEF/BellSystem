@@ -71,6 +71,7 @@ for p in src/Client.Service/Client.Service.csproj tools/EnrollTool/EnrollTool.cs
     -p:DebugType=none -p:ContinuousIntegrationBuild=true -o "$WIN/app" >>"$LOG" 2>&1
 done
 cp build/release-signing.pub.pem "$WIN/release-signing.pub.pem"
+cp LICENSE "$WIN/LICENSE"
 rm -f "$WIN/app/appsettings.Development.json"
 
 if [ "$SKIP_INSTALLER" = 0 ]; then
@@ -114,6 +115,7 @@ cp install/server/install.sh install/server/uninstall.sh install/server/schoolbe
 cp -r install/server/systemd install/server/caddy "$SRV/"
 cp build/release-signing.pub.pem "$SRV/"
 echo "$VERSION" > "$SRV/VERSION"
+cp LICENSE "$SRV/LICENSE"
 cp README.md OPERATIONS.md KNOWN-ISSUES.md LICENSES.md "$SRV/" 2>/dev/null || true
 chmod 0755 "$SRV/install.sh" "$SRV/uninstall.sh" "$SRV/schoolbell-update.sh"
 tar -C "$STAGE/server" --owner=0 --group=0 -czf $DIST/server/schoolbell-server-linux-x64.tar.gz "schoolbell-$VERSION"
@@ -124,7 +126,7 @@ ARGS=("$DIST/server/schoolbell-server-linux-x64.tar.gz:server/schoolbell-server-
 [ -f $DIST/windows/SchoolBellSetup.exe ] && ARGS+=("$DIST/windows/SchoolBellSetup.exe:windows/SchoolBellSetup.exe")
 manifest $DIST/release-manifest.json "${ARGS[@]}"
 sign $DIST/release-manifest.json
-cp LICENSES.md $DIST/ 2>/dev/null || true
+cp LICENSES.md LICENSE $DIST/ 2>/dev/null || true
 (cd dist && find . -type f ! -name SHA256SUMS ! -path './stage/*' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
 rm -rf "$STAGE"
 echo

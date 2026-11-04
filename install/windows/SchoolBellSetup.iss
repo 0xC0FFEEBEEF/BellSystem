@@ -43,6 +43,7 @@ MinVersion=10.0.17763
 OutputDir={#Stage}\..\..\windows
 OutputBaseFilename=SchoolBellSetup
 SetupIconFile=schoolbell.ico
+LicenseFile={#Stage}\LICENSE
 UninstallDisplayIcon={app}\SchoolBellCompanion.exe
 UninstallDisplayName={#MyAppName}
 Compression=lzma2/max
@@ -61,6 +62,7 @@ Source: "{#Stage}\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Source: "update-runner.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "SchoolBellCompanion.task.xml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Stage}\release-signing.pub.pem"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Stage}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "schoolbell.ico"; DestDir: "{app}"; Flags: ignoreversion
 #if DirExists(Stage + "\provisioning")
 Source: "{#Stage}\provisioning\schoolbell-enroll.json"; Flags: dontcopy
