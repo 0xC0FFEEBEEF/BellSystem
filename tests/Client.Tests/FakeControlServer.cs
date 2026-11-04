@@ -35,6 +35,7 @@ public sealed class FakeControlServer : IAsyncDisposable
     public string DeviceSecretHex { get; }
     public string TrustPinHex { get; } = ManifestTestKit.TrustPinHex;
     public bool ProofVerified { get; private set; }
+    public AuthResponsePayload? LastAuthResponse { get; private set; }
     public int ConnectionCount { get { lock (_gate) return _connCount; } }
     public int RudeCloseFirstConnections { get; set; } // close this many connections before auth.ok
     public List<ControlEnvelope> Received { get; } = [];
@@ -192,6 +193,7 @@ public sealed class FakeControlServer : IAsyncDisposable
         if (resp is null || resp.DeviceId != DeviceId ||
             !AuthProof.Verify(DeviceSecretHex, nonce, resp.DeviceId, resp.Proof)) return;
         ProofVerified = true;
+        LastAuthResponse = resp;
 
         await SendTextAsync(ws, ControlEnvelope.Create(Protocol.TAuthOk,
             PayloadSerializer.Node(new AuthOkPayload(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))).ToJson());

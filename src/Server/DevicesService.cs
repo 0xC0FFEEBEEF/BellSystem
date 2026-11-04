@@ -88,6 +88,19 @@ public sealed class DevicesService
         return list;
     }
 
+    /// Client version and advertised receive limit per device (limit null = a client before 0.9.5).
+    public Dictionary<string, (string? Version, int? MaxBytes)> MessageLimits()
+    {
+        using var conn = _db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT device_id, client_version, max_message_bytes FROM devices";
+        var map = new Dictionary<string, (string?, int?)>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            map[r.GetString(0)] = (r.IsDBNull(1) ? null : r.GetString(1), r.IsDBNull(2) ? null : r.GetInt32(2));
+        return map;
+    }
+
     public List<(string DeviceId, long AcceptedRevision)> AllDeviceRevisions()
     {
         using var conn = _db.Open();

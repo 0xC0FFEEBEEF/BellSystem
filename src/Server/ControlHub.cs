@@ -129,9 +129,12 @@ public sealed class ControlHub
         }
 
         var nowMs = _time.GetUtcNow().ToUnixTimeMilliseconds();
+        int maxBytes = resp.MaxMessageBytes is int m && m > Protocol.MaxControlMessageBytes
+            ? Math.Min(m, Protocol.MaxServerMessageBytes) : Protocol.MaxControlMessageBytes;
         using (var conn = _db.Open())
-            conn.Run("UPDATE devices SET last_seen = $t, client_version = $v WHERE device_id = $d",
-                ("$t", nowMs), ("$v", resp.ClientVersion is { Length: > 0 and <= 64 } cv ? cv : null), ("$d", resp.DeviceId));
+            conn.Run("UPDATE devices SET last_seen = $t, client_version = $v, max_message_bytes = $m WHERE device_id = $d",
+                ("$t", nowMs), ("$v", resp.ClientVersion is { Length: > 0 and <= 64 } cv ? cv : null),
+                ("$m", resp.MaxMessageBytes is null ? null : maxBytes), ("$d", resp.DeviceId));
         // a device that comes back running a rolled-out version has installed it (covers a lost update.status)
         if (resp.ClientVersion is { Length: > 0 and <= 64 }) _updates?.OnDeviceVersion(resp.DeviceId, resp.ClientVersion);
 
@@ -140,7 +143,11 @@ public sealed class ControlHub
             PayloadSerializer.Node(new AuthOkPayload(nowMs)));
         await ws.SendTextAsync(ok.ToJson(), lifetime.Token);
 
-        var wconn = new ControlConnection(resp.DeviceId, ws, nowMs, _log);
+        var wconn = new ControlConnection(resp.DeviceId, ws, nowMs, _log)
+        {
+            MaxMessageBytes = maxBytes,
+            ClientVersion = resp.ClientVersion is { Length: > 0 and <= 64 } v2 ? v2 : null,
+        };
         if (_registry.Register(wconn) is null)
         {
             Interlocked.Increment(ref _rejectedLimitReached);
@@ -308,7 +315,13 @@ public sealed class ControlHub
         var replayed = _outbox.Replay(deviceId, payload.Cursor);
         foreach (var json in replayed)
         {
-            if (ControlEnvelope.Parse(json) is not ControlEnvelope e) continue;
+            // our own outbox: read it with the server-side limit (a manifest is often > 32 KB; the
+            // device's own limit is applied when sending)
+            if (ControlEnvelope.Parse(json, Protocol.MaxServerMessageBytes) is not ControlEnvelope e)
+            {
+                _log.LogWarning("outbox replay: unreadable event for device {DeviceId} skipped", deviceId);
+                continue;
+            }
             if (_announcements is not null && !_announcements.OutboxReplayOk(deviceId, e))
             {
                 _log.LogInformation("outbox replay skipped {EventType} for device {DeviceId} (expired live offer, or a used/expired media token)",
@@ -337,7 +350,11 @@ public sealed class ControlHub
             if (manifestJson is not null)
             {
                 var manifestEnvelope = ControlEnvelope.Create(Protocol.TScheduleManifest, JsonNode.Parse(manifestJson));
-                _outbox.Enqueue(deviceId, manifestEnvelope);
+                // a client that cannot take it would get a fresh copy queued on every reconnect
+                if (conn.Fits(manifestEnvelope.ToJson())) _outbox.Enqueue(deviceId, manifestEnvelope);
+                else _log.LogWarning("device {DeviceId} (client {Version}) cannot receive schedule revision {Revision}: it is larger than " +
+                    "the {Max} bytes that client accepts. Update the SchoolBell client on that computer", deviceId,
+                    conn.ClientVersion ?? "unknown", latest, conn.MaxMessageBytes);
             }
         }
 

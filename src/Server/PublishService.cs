@@ -47,6 +47,14 @@ public sealed class PublishService
         return Convert.ToInt64(v ?? 0);
     }
 
+    /// Approximate size on the wire of the latest schedule.manifest (manifest + envelope), 0 if none.
+    public long LatestManifestBytes()
+    {
+        using var conn = _db.Open();
+        var v = conn.Scalar("SELECT LENGTH(CAST(manifest_json AS BLOB)) FROM published_revisions ORDER BY revision DESC LIMIT 1");
+        return v is null or DBNull ? 0 : Convert.ToInt64(v) + 256;
+    }
+
     public PublishOutcome Publish(string actor)
     {
         var tzId = SchoolTz;
@@ -84,6 +92,12 @@ public sealed class PublishService
                 Occurrences = compiled.Occurrences,
             };
             manifest.Signature = ManifestSigner.Sign(manifest, key);
+
+            var size = System.Text.Encoding.UTF8.GetByteCount(
+                ControlEnvelope.Create(Protocol.TScheduleManifest, PayloadSerializer.Node(manifest)).ToJson());
+            if (size > Protocol.MaxServerMessageBytes)
+                return new(409, $"the next 7 days hold {compiled.Occurrences.Count} bells ({size / 1024} KB), more than " +
+                    $"endpoints accept ({Protocol.MaxServerMessageBytes / 1024} KB). Remove duplicate periods or unused schedules.");
 
             using var tx = conn.BeginTransaction();
             conn.Run(tx, """

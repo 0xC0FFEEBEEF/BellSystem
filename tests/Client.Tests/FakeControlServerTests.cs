@@ -324,4 +324,33 @@ public class FakeControlServerTests
                 PayloadSerializer.ToPayload<ManifestRejectedPayload>(e)?.Reason == "revision_not_newer"), 10_000));
         Assert.DoesNotContain(h.Player.Requests, r => r.OccurrenceId == "bad");
     }
+
+    [Fact]
+    public async Task Large_Manifest_Over_32KB_With_Multibyte_Names_Is_Accepted_And_Client_Advertises_Its_Limit()
+    {
+        var deviceId = Guid.NewGuid().ToString();
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        await using var server = await FakeControlServer.StartAsync(deviceId, secret);
+        var bell = System.Text.Encoding.UTF8.GetBytes("BELL WAV BYTES");
+        server.Sounds["std-bell"] = bell;
+        var now = NowMs();
+        // a real school week: 400 bells; accented names so multi-byte characters straddle receive chunks
+        var occurrences = Enumerable.Range(0, 400).Select(i =>
+            new Occurrence($"occ-{i:D4}-{new string('a', 52)}", now + 600_000 + i * 60_000, $"Récréation période {i} ✓",
+                "start", "std-bell", "announcement", 3, new TargetScope(All: true, null, null),
+                "High School", "2026-11-05", "08:30", now + 7 * 86_400_000)).ToList();
+        var manifest = ManifestTestKit.BuildManifest(9, now, occurrences, soundSha: Sha(bell));
+        var size = System.Text.Encoding.UTF8.GetByteCount(
+            ControlEnvelope.Create(Protocol.TScheduleManifest, PayloadSerializer.Node(manifest)).ToJson());
+        Assert.True(size > 4 * Protocol.MaxControlMessageBytes, $"test manifest is only {size} bytes");
+        server.QueueEvent(Protocol.TScheduleManifest, PayloadSerializer.Node(manifest));
+
+        await using var h = StartAgentAsync(server);
+
+        var ack = await server.WaitForAsync(Protocol.TScheduleAck);
+        Assert.Equal(9, PayloadSerializer.ToPayload<ScheduleAckPayload>(ack)!.Revision);
+        Assert.Equal(9, h.Agent.Manifests.LocalRevision);
+        Assert.Equal(1, server.ConnectionCount);   // never dropped the connection over the size
+        Assert.Equal(Protocol.MaxServerMessageBytes, server.LastAuthResponse!.MaxMessageBytes);
+    }
 }

@@ -24,9 +24,9 @@ public sealed record ControlEnvelope(
 
     public string ToJson() => JsonSerializer.Serialize(this, Json);
 
-    public static ControlEnvelope? Parse(string json)
+    public static ControlEnvelope? Parse(string json, int maxBytes = Protocol.MaxControlMessageBytes)
     {
-        if (json.Length > Protocol.MaxControlMessageBytes) return null;
+        if (json.Length > maxBytes) return null;
         try
         {
             var env = JsonSerializer.Deserialize<ControlEnvelope>(json, Json);
@@ -48,7 +48,9 @@ public static class PayloadSerializer
 // ---------- payload records (field names serialize snake_case) ----------
 
 public sealed record AuthChallengePayload(string Nonce);
-public sealed record AuthResponsePayload(string DeviceId, string ClientVersion, string Proof);
+/// MaxMessageBytes (added in 0.9.5): the largest server message this device accepts. Absent on
+/// older clients, which the server then holds to Protocol.MaxControlMessageBytes.
+public sealed record AuthResponsePayload(string DeviceId, string ClientVersion, string Proof, int? MaxMessageBytes = null);
 public sealed record AuthOkPayload(long ServerTime);
 
 public sealed record QueuedReceipt(string OccurrenceOrAnnouncementId, string State, long At, string? ErrorCode);

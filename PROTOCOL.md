@@ -48,9 +48,14 @@ Connect, then handshake within 10 s:
 { "v":1, "type":"auth.challenge" }                       // server → device (payload: {nonce: hex16})
 { "v":1, "type":"auth.response", "payload": {
     "device_id": "...", "client_version": "...",
-    "proof": hex(HMAC-SHA256(device_secret, nonce + device_id)) } }
+    "proof": hex(HMAC-SHA256(device_secret, nonce + device_id)),
+    "max_message_bytes": 1048576 } }                      // optional, since 0.9.5
 { "v":1, "type":"auth.ok", "payload": { "server_time": 1793700000000 } }
 ```
+
+`max_message_bytes` is the largest server message the device accepts. A device that omits it
+(clients up to 0.9.4) is held to 32 KB: the server never sends it a larger message (it stays in
+the outbox) and the office UI shows that computer as needing a client update.
 
 Then the device sends a resync header (durable, from local storage):
 
@@ -224,7 +229,9 @@ group policy; never unlocks a screen.
   CSRF tokens for writes; Origin check on browser WS upgrades.
 - Enrollment file (`--enrollment-file`) is deployment material: consumed/invalidated per
   policy, secret never logged. `--ca-file` optional when enterprise trust exists.
-- Hard protocol bounds: control message ≤ 32 KB; media frame ≤ 1 KB; manifests compiled
+- Hard protocol bounds: device → server control message ≤ 32 KB; server → device ≤ the
+  device's advertised `max_message_bytes` (1 MB in current clients; a 7-day manifest for a full
+  school day is well over 100 KB, and publishing refuses a manifest over 1 MB); media frame ≤ 1 KB; manifests compiled
   horizon ≤ 7 days; per-device queues bounded as above; all queue depths exposed via
   `/api/diagnostics` (visible configurable settings, no hidden device cap).
 - No remote shell, no unauthenticated broadcast, no classroom-side capture.

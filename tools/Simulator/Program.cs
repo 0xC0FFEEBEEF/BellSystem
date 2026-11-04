@@ -188,19 +188,22 @@ sealed class Sim
         var buf = new byte[64 * 1024];
         async Task<ControlEnvelope?> Recv()
         {
-            var sb = new StringBuilder();
+            using var ms = new MemoryStream();
             while (true)
             {
                 var r = await ws.ReceiveAsync(buf, d.Life.Token);
                 if (r.MessageType == WebSocketMessageType.Close) return null;
-                sb.Append(Encoding.UTF8.GetString(buf, 0, r.Count));
-                if (r.EndOfMessage) return ControlEnvelope.Parse(sb.ToString());
+                ms.Write(buf, 0, r.Count);
+                if (ms.Length > Protocol.MaxServerMessageBytes) return null;
+                if (r.EndOfMessage)
+                    return ControlEnvelope.Parse(Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length), Protocol.MaxServerMessageBytes);
             }
         }
         var challenge = await Recv() ?? throw new InvalidOperationException("no challenge");
         var nonce = PayloadSerializer.ToPayload<AuthChallengePayload>(challenge)!.Nonce;
         await SendAsync(d, ControlEnvelope.Create(Protocol.TAuthResponse, PayloadSerializer.Node(
-            new AuthResponsePayload(d.Cred.DeviceId, "sim-1.0", AuthProof.Compute(d.Cred.Secret, nonce, d.Cred.DeviceId)))));
+            new AuthResponsePayload(d.Cred.DeviceId, "sim-1.0", AuthProof.Compute(d.Cred.Secret, nonce, d.Cred.DeviceId),
+                Protocol.MaxServerMessageBytes))));
         var ok = await Recv();
         if (ok?.Type != Protocol.TAuthOk) throw new InvalidOperationException("auth failed");
         _authAt[d.Cred.DeviceId] = Now();

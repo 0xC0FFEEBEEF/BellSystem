@@ -7,7 +7,8 @@ namespace SchoolBell.Client.Core;
 
 /// Client-side control WebSocket session implementing PROTOCOL §3:
 /// auth.challenge -> auth.response (HMAC proof via Contracts.AuthProof) -> auth.ok,
-/// then framed JSON control messages (32 KB cap, fragment aggregation).
+/// then framed JSON control messages (fragment aggregation; we send at most 32 KB and accept up to
+/// Protocol.MaxServerMessageBytes from the server, which we advertise in auth.response).
 /// Heartbeat: ClientWebSocket sends WS pings every 10 s and answers server pings
 /// automatically (pong), matching the server's Kestrel KeepAliveInterval=10 s.
 /// TLS is validated normally — no RemoteCertificateValidationCallback override.
@@ -58,7 +59,8 @@ public sealed class ControlSession : IAsyncDisposable
         // 2) auth.response (never log device_secret or proof)
         var proof = AuthProof.Compute(cfg.DeviceSecret, nonce, cfg.DeviceId);
         await SendAsync(ControlEnvelope.Create(Protocol.TAuthResponse,
-            PayloadSerializer.Node(new AuthResponsePayload(cfg.DeviceId, cfg.ClientVersion, proof))), ct);
+            PayloadSerializer.Node(new AuthResponsePayload(cfg.DeviceId, cfg.ClientVersion, proof,
+                Protocol.MaxServerMessageBytes))), ct);
 
         // 3) auth.ok
         var ok = await ReceiveEnvelopeAsync(ct)
@@ -79,11 +81,12 @@ public sealed class ControlSession : IAsyncDisposable
         await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
     }
 
-    /// Reads one text envelope; null when the socket closed. Enforces the 32 KB cap.
+    /// Reads one text envelope; null when the socket closed. Enforces Protocol.MaxServerMessageBytes
+    /// (a 7-day schedule manifest is often well over 100 KB).
     public async Task<ControlEnvelope?> ReceiveEnvelopeAsync(CancellationToken ct)
     {
         var buffer = new byte[16 * 1024];
-        var sb = new StringBuilder();
+        using var message = new MemoryStream();
         while (true)
         {
             WebSocketReceiveResult res;
@@ -93,13 +96,15 @@ public sealed class ControlSession : IAsyncDisposable
             if (res.MessageType == WebSocketMessageType.Close) return null;
             if (res.MessageType != WebSocketMessageType.Text)
                 throw new WebSocketException("unexpected binary frame on control channel");
-            sb.Append(Encoding.UTF8.GetString(buffer, 0, res.Count));
-            if (Encoding.UTF8.GetByteCount(sb.ToString()) > Protocol.MaxControlMessageBytes)
-                throw new WebSocketException("control message exceeds 32 KB");
+            message.Write(buffer, 0, res.Count);
+            if (message.Length > Protocol.MaxServerMessageBytes)
+                throw new WebSocketException($"control message exceeds {Protocol.MaxServerMessageBytes / 1024} KB");
             if (res.EndOfMessage) break;
         }
         Volatile.Write(ref _lastServerContactMs, _time.GetUtcNow().ToUnixTimeMilliseconds());
-        var env = ControlEnvelope.Parse(sb.ToString());
+        // decode once: a multi-byte character can straddle two receive chunks
+        var env = ControlEnvelope.Parse(Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length),
+            Protocol.MaxServerMessageBytes);
         if (env is null) throw new WebSocketException("invalid control envelope");
         return env;
     }

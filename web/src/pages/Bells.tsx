@@ -126,17 +126,21 @@ function Calendar() {
   for (const o of [...(preview.data?.occurrences ?? [])].sort((a: any, b: any) => a.starts_at - b.starts_at)) (byDate[o.local_date] ??= []).push(o);
   const latest = acceptance.data?.latest_revision ?? 0;
   const accepted = (acceptance.data?.devices ?? []).filter((d: any) => d.accepted_revision >= latest && latest > 0).length;
+  const needUpdate = (acceptance.data?.devices ?? []).filter((d: any) => d.needs_client_update).length;
 
   return (
     <div className="grid">
       <Card title="Publish to endpoints" className="span2" actions={canEdit && <button className="primary" disabled={busy}
         onClick={() => run(async () => { setPub(await post("/api/schedules/publish")); acceptance.reload(); }, "Published")}>Publish next 7 days</button>}>
         <p>Published revision <b>{latest || "none"}</b> · accepted by <b>{accepted}</b> of {(acceptance.data?.devices ?? []).length} endpoint(s).</p>
+        {needUpdate > 0 && <p><b>{needUpdate}</b> endpoint(s) run a SchoolBell client too old to receive this schedule. Roll out the current client in Admin &gt; Windows client updates.</p>}
         {pub && <p className="dim">Revision {pub.revision}: {pub.occurrence_count} bell(s), sent to {pub.devices_notified} connected endpoint(s); others receive it when they reconnect.</p>}
         <p className="dim small">Endpoints ring from their own cached copy, so bells keep working through network or server outages for up to 7 days. An offline computer cannot learn about a cancellation — check “accepted revision” below.</p>
         <details><summary>Endpoints by accepted revision</summary>
           <table><tbody>{(acceptance.data?.devices ?? []).map((d: any) => (
-            <tr key={d.device_id}><td>{d.label}</td><td>revision {d.accepted_revision}</td><td>{d.stale ? <Badge state="stale" /> : <Badge state="completed" title="up to date" />}</td><td className="dim">cache expires {fmtTime(d.cache_expires_at)}</td></tr>))}</tbody></table>
+            <tr key={d.device_id}><td>{d.label}</td><td>revision {d.accepted_revision}</td><td>{d.needs_client_update
+              ? <Badge state="needs_client_update" title={`SchoolBell ${d.client_version ?? "(old version)"} on this computer cannot receive a schedule this large. Update it in Admin > Windows client updates.`} />
+              : d.stale ? <Badge state="stale" /> : <Badge state="completed" title="up to date" />}</td><td className="dim">cache expires {fmtTime(d.cache_expires_at)}</td></tr>))}</tbody></table>
         </details>
       </Card>
 

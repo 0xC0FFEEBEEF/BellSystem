@@ -6,7 +6,12 @@ public static class Protocol
 {
     public const int Version = 1;
 
+    /// Cap on control messages a device sends, and on what a device that does not advertise
+    /// a larger limit in auth.response will accept from the server (clients up to 0.9.4).
     public const int MaxControlMessageBytes = 32 * 1024;
+    /// Cap on control messages a current device accepts from the server. A 7-day manifest
+    /// carries every bell (a full school day is easily 100+ KB), so 32 KB is far too small.
+    public const int MaxServerMessageBytes = 1024 * 1024;
     public const int MaxMediaFrameBytes = 1024;
     public const int MaxMediaPayloadBytes = 640;          // 320 samples @16kHz mono s16le
     public const int FrameMs = 20;

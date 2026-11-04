@@ -29,6 +29,9 @@ public sealed class ControlConnection
     private long _lastSeenMs;
 
     public string DeviceId { get; }
+    /// Largest message this device accepts (from auth.response; 32 KB for clients before 0.9.5).
+    public int MaxMessageBytes { get; init; } = Protocol.MaxControlMessageBytes;
+    public string? ClientVersion { get; init; }
     public long LastSeenMs => Volatile.Read(ref _lastSeenMs);
     public bool Closing { get; private set; }
 
@@ -41,9 +44,22 @@ public sealed class ControlConnection
 
     public void Send(ControlEnvelope env) => SendRaw(env.ToJson());
 
+    /// True when the message fits this device's advertised limit.
+    public bool Fits(string json) => System.Text.Encoding.UTF8.GetByteCount(json) <= MaxMessageBytes;
+
     public void SendRaw(string json)
     {
         if (Closing) return;
+        if (!Fits(json))
+        {
+            // An older client drops its connection on an oversized message, and would then never
+            // receive the client update that fixes it. Hold the event in the durable outbox instead.
+            var type = ControlEnvelope.Parse(json, Protocol.MaxServerMessageBytes)?.Type ?? "?";
+            _log.LogWarning("not sending {Type} ({Bytes} bytes) to device {DeviceId}: its client ({Version}) accepts at most {Max} bytes. " +
+                "Update the SchoolBell client on that computer (Admin > Windows client updates)",
+                type, System.Text.Encoding.UTF8.GetByteCount(json), DeviceId, ClientVersion ?? "unknown", MaxMessageBytes);
+            return;
+        }
         if (_out.Writer.TryWrite(json)) return;
         var dropped = Interlocked.Increment(ref _dropped);
         _log.LogWarning("device {DeviceId} send queue overflow (dropped count {Dropped}); events remain in the durable outbox",

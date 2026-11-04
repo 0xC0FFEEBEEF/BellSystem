@@ -63,7 +63,7 @@ public sealed class SoundService
         cmd.Parameters.AddWithValue("$i", id);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
-        return new SoundAsset(r.GetString(0), r.GetString(1), r.GetInt64(2), $"/api/sounds/{r.GetString(0)}");
+        return new SoundAsset(r.GetString(0), r.GetString(1), r.IsDBNull(3) ? 0 : r.GetInt64(3), $"/api/sounds/{r.GetString(0)}");
     }
 
     public List<SoundAsset> List()
@@ -74,7 +74,7 @@ public sealed class SoundService
         var list = new List<SoundAsset>();
         using var r = cmd.ExecuteReader();
         while (r.Read())
-            list.Add(new SoundAsset(r.GetString(0), r.GetString(1), r.GetInt64(2), $"/api/sounds/{r.GetString(0)}"));
+            list.Add(new SoundAsset(r.GetString(0), r.GetString(1), r.IsDBNull(3) ? 0 : r.GetInt64(3), $"/api/sounds/{r.GetString(0)}"));
         return list;
     }
 

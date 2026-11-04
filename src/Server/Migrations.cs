@@ -337,5 +337,9 @@ public static class Migrations
           PRIMARY KEY(rollout_id, device_id)
         );
         """,
+        // 6: largest server message each device accepts (null = a client from before 0.9.5: 32 KB)
+        """
+        ALTER TABLE devices ADD COLUMN max_message_bytes INTEGER;
+        """,
     ];
 }

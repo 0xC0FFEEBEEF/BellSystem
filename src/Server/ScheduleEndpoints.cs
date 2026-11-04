@@ -158,9 +158,13 @@ public static class ScheduleEndpoints
         {
             if (Guard.User(ctx) is null) return Err.Detail(401, "authentication required");
             var latest = publish.LatestRevision() ?? 0;
+            var manifestBytes = publish.LatestManifestBytes();
+            var limits = devices.MessageLimits();
             var rows = devices.AllDeviceRevisions().Select(d =>
             {
                 var row = devices.Get(d.DeviceId);
+                limits.TryGetValue(d.DeviceId, out var lim);
+                bool stale = d.AcceptedRevision < latest;
                 return new
                 {
                     device_id = d.DeviceId,
@@ -168,7 +172,10 @@ public static class ScheduleEndpoints
                     accepted_revision = d.AcceptedRevision,
                     cache_revision = row?.CacheRevision ?? 0,
                     cache_expires_at = row?.CacheExpiresAt,
-                    stale = d.AcceptedRevision < latest,
+                    stale,
+                    client_version = lim.Version,
+                    // this computer's client cannot receive a schedule this large: it needs a client update
+                    needs_client_update = stale && manifestBytes > (lim.MaxBytes ?? Protocol.MaxControlMessageBytes),
                 };
             });
             return Http.Json(new { latest_revision = latest, devices = rows });
