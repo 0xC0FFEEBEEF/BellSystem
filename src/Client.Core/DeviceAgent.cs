@@ -277,8 +277,24 @@ public sealed partial class DeviceAgent
                 }
                 else
                 {
-                    foreach (var d in ev.Decisions)
+                    foreach (var d in ev.Decisions.Where(d => d.Action != BellAction.Play))
                         await ExecuteBellAsync(d, ct);
+                    // bells due at the same moment (overlapping schedules for different groups that
+                    // both include this computer) ring once; each records the same result
+                    foreach (var same in ev.Decisions.Where(d => d.Action == BellAction.Play).GroupBy(d => d.Occurrence.StartsAt))
+                    {
+                        var ordered = same.OrderBy(d => d.Occurrence.Kind == "start" ? 0 : d.Occurrence.Kind == "warn" ? 1 : 2)
+                            .ThenByDescending(d => d.Occurrence.VolumePolicy == "announcement")
+                            .ThenByDescending(d => d.Occurrence.DurationS).ToList();
+                        var (state, reason) = await ExecuteBellAsync(ordered[0], ct);
+                        foreach (var other in ordered.Skip(1))
+                        {
+                            Ledger.MarkTerminal(other.OccurrenceId, state);
+                            QueueReceipt(new ReceiptPayload(other.OccurrenceId, state, Clock.NowMs(), reason));
+                            _log.LogInformation("bell '{Bell}' ({OccurrenceId}) is at the same moment as '{Played}' — rang once -> {State}",
+                                other.Occurrence.BellName, other.OccurrenceId, ordered[0].Occurrence.BellName, state);
+                        }
+                    }
                     delayMs = ev.NextDueMs is long due
                         ? Math.Clamp(due - now, 50, 6 * 3_600_000L)
                         : 30_000;
@@ -302,7 +318,7 @@ public sealed partial class DeviceAgent
         }
     }
 
-    private async Task ExecuteBellAsync(BellDecision decision, CancellationToken ct)
+    private async Task<(string State, string? Reason)> ExecuteBellAsync(BellDecision decision, CancellationToken ct)
     {
         var occ = decision.Occurrence;
         var now = Clock.NowMs();
@@ -313,14 +329,14 @@ public sealed partial class DeviceAgent
                 QueueReceipt(new ReceiptPayload(decision.OccurrenceId, ReceiptState.Expired, now, "missed_bell"));
                 _log.LogInformation("bell '{Bell}' ({OccurrenceId}) missed past grace — recorded expired, not replayed",
                     occ.BellName, decision.OccurrenceId);
-                break;
+                return (ReceiptState.Expired, "missed_bell");
 
             case BellAction.Suppressed:
                 Ledger.MarkTerminal(decision.OccurrenceId, ReceiptState.Suppressed);
                 QueueReceipt(new ReceiptPayload(decision.OccurrenceId, ReceiptState.Suppressed, now, "live_announcement"));
                 _log.LogInformation("bell '{Bell}' ({OccurrenceId}) suppressed by live announcement",
                     occ.BellName, decision.OccurrenceId);
-                break;
+                return (ReceiptState.Suppressed, "live_announcement");
 
             case BellAction.Play:
                 var wav = Cache.GetSoundPath(occ.SoundId);
@@ -330,7 +346,7 @@ public sealed partial class DeviceAgent
                     QueueReceipt(new ReceiptPayload(decision.OccurrenceId, ReceiptState.Failed, now, "sound_missing"));
                     _log.LogWarning("bell '{Bell}' ({OccurrenceId}): cached sound '{SoundId}' missing — failed",
                         occ.BellName, decision.OccurrenceId, occ.SoundId);
-                    break;
+                    return (ReceiptState.Failed, "sound_missing");
                 }
                 var req = new PipeBellPlay(decision.OccurrenceId, occ.BellName, wav, occ.DurationS,
                     _cfg.BellFadeMs, occ.VolumePolicy,
@@ -349,8 +365,9 @@ public sealed partial class DeviceAgent
                 _lastPlayback = new PlaybackResult(decision.OccurrenceId, state, Clock.NowMs());
                 _log.LogInformation("bell '{Bell}' ({OccurrenceId}) -> {State}", occ.BellName, decision.OccurrenceId, state);
                 NotifyStateChanged();
-                break;
+                return (state, outcome.Reason);
         }
+        return (ReceiptState.Unknown, null);
     }
 
     public void QueueReceipt(ReceiptPayload receipt)

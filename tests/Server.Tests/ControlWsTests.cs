@@ -275,6 +275,42 @@ public class ControlWsTests
         ws.Dispose();
     }
 
+    [Fact]
+    public async Task History_lists_past_scheduled_bells_only_and_hides_ones_a_later_publish_replaced()
+    {
+        using var app = new TestApp(tz: "America/Chicago");
+        await app.LoginAsAdmin();
+        object Schedule(string name) => new
+        {
+            name, target = new { all = true }, weekdays = new[] { 0, 1, 2, 3, 4, 5, 6 },
+            periods = new[]
+            {
+                new { name = "Early", start_hm = "00:01", end_hm = "00:02", warn_min = 0, sound_id = "std-bell", volume_policy = "announcement", duration_s = 3 },
+                new { name = "Late", start_hm = "23:57", end_hm = "23:58", warn_min = 0, sound_id = "std-bell", volume_policy = "announcement", duration_s = 3 },
+            },
+        };
+        Assert.True((await app.Post("/api/schedules", Schedule("Old"))).IsSuccessStatusCode);
+        await app.Post("/api/schedules/publish", null);
+        var oldId = (await app.Json(await app.Get("/api/schedules"))).EnumerateArray()
+            .First(t => t.GetProperty("name").GetString() == "Old").GetProperty("id").GetInt64();
+        var oldIds = (await app.Json(await app.Get("/api/recent-bells?limit=200"))).EnumerateArray()
+            .Select(b => b.GetProperty("occurrence_id").GetString()).ToHashSet();
+        // replace the schedule (same times, new ids) and publish again
+        Assert.True((await app.Delete($"/api/schedules/{oldId}")).IsSuccessStatusCode);
+        await app.Post("/api/schedules", Schedule("New"));
+        await app.Post("/api/schedules/publish", null);
+
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var past = (await app.Json(await app.Get("/api/recent-bells?past=true&limit=200"))).EnumerateArray().ToList();
+        Assert.All(past, b => Assert.True(b.GetProperty("starts_at").GetInt64() <= now));
+        Assert.All(past, b => Assert.DoesNotContain(b.GetProperty("occurrence_id").GetString(), oldIds));
+        Assert.All(past, b => Assert.Equal("New", b.GetProperty("schedule_template").GetString()));
+        var expected = (await app.Json(await app.Get("/api/recent-bells?limit=200"))).EnumerateArray()
+            .Count(b => b.GetProperty("starts_at").GetInt64() <= now && !oldIds.Contains(b.GetProperty("occurrence_id").GetString()));
+        Assert.Equal(expected, past.Count);
+        Assert.True(past.Count >= 1 || DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(-6)).TimeOfDay < TimeSpan.FromMinutes(3));
+    }
+
     static async Task HandshakeRawAsync(WebSocket ws, Device device)
     {
         var challenge = await ReadEnvelopeAsync(ws);

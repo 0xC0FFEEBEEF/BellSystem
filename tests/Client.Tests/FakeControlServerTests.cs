@@ -353,4 +353,35 @@ public class FakeControlServerTests
         Assert.Equal(1, server.ConnectionCount);   // never dropped the connection over the size
         Assert.Equal(Protocol.MaxServerMessageBytes, server.LastAuthResponse!.MaxMessageBytes);
     }
+
+    [Fact]
+    public async Task Bells_Due_At_The_Same_Moment_Ring_Once_And_Each_Records_The_Result()
+    {
+        var deviceId = Guid.NewGuid().ToString();
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        await using var server = await FakeControlServer.StartAsync(deviceId, secret);
+        var bell = System.Text.Encoding.UTF8.GetBytes("BELL");
+        server.Sounds["std-bell"] = bell;
+        var now = NowMs();
+        var at = now + 1_500;
+        // e.g. an "All" schedule and a group schedule that both include this computer
+        var hs = ManifestTestKit.Bell("hs-pass", at, now + 7 * 86_400_000) with { BellName = "Pass", Kind = "end" };
+        var jh = ManifestTestKit.Bell("jh-6th", at, now + 7 * 86_400_000) with { BellName = "6th period", Kind = "start" };
+        var later = ManifestTestKit.Bell("later", at + 1_000, now + 7 * 86_400_000);
+        server.QueueEvent(Protocol.TScheduleManifest, PayloadSerializer.Node(
+            ManifestTestKit.BuildManifest(6, now, [hs, jh, later], soundSha: Sha(bell))));
+
+        await using var h = StartAgentAsync(server);
+        Assert.True(await server.WaitUntilAsync(
+            () => AgentKit.CountReceipts(server.Received, "hs-pass", ReceiptState.Completed) == 1 &&
+                  AgentKit.CountReceipts(server.Received, "jh-6th", ReceiptState.Completed) == 1 &&
+                  AgentKit.CountReceipts(server.Received, "later", ReceiptState.Completed) == 1, 15_000));
+
+        lock (h.Player.Requests)
+        {
+            Assert.Equal(2, h.Player.Requests.Count);                     // one for the shared moment, one later
+            Assert.Equal("jh-6th", h.Player.Requests[0].OccurrenceId);    // the starting period represents it
+            Assert.Equal("later", h.Player.Requests[1].OccurrenceId);
+        }
+    }
 }

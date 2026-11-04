@@ -21,10 +21,10 @@ public static class DeviceEndpoints
             return row is null ? Err.Detail(404, "device not found") : Http.Json(row);
         });
 
-        app.MapGet("/api/recent-bells", (HttpContext ctx, int limit = 50) =>
+        app.MapGet("/api/recent-bells", (HttpContext ctx, int limit = 50, bool past = false) =>
         {
             if (Guard.User(ctx) is null) return Err.Detail(401, "authentication required");
-            return Http.Json(receipts.RecentBells(limit, time.GetUtcNow().ToUnixTimeMilliseconds()));
+            return Http.Json(receipts.RecentBells(limit, time.GetUtcNow().ToUnixTimeMilliseconds(), past));
         });
 
         // Milestone S2 built the real announcement API on its own paths

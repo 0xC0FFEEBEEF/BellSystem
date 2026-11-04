@@ -85,7 +85,37 @@ public static class ScheduleCompiler
                     }
                 }
         }
+        var merged = MergeSameMoment(result.Occurrences);
+        result.Occurrences.Clear();
+        result.Occurrences.AddRange(merged);
         return result;
+    }
+
+    /// One bell per moment: back-to-back periods (one ends as the next starts) and schedules that
+    /// share a time would otherwise ring several times in a row. Bells at the same instant for the
+    /// same target merge into one. The start bell represents the group (its sound and stable id);
+    /// names are combined, the longest duration and the announcement volume policy win.
+    public static List<Occurrence> MergeSameMoment(List<Occurrence> occurrences)
+    {
+        static int KindRank(string kind) => kind switch { "start" => 0, "warn" => 1, _ => 2 };
+        static string Join(IEnumerable<string> parts) =>
+            string.Join(" / ", parts.Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase));
+
+        var merged = new List<Occurrence>(occurrences.Count);
+        foreach (var group in occurrences.GroupBy(o => (o.StartsAt, OccurrenceIds.TargetKey(o.Target))))
+        {
+            var same = group.OrderBy(o => KindRank(o.Kind)).ToList();   // stable: keeps schedule/period order
+            if (same.Count == 1) { merged.Add(same[0]); continue; }
+            var rep = same[0];
+            merged.Add(rep with
+            {
+                BellName = Join(same.Select(o => o.BellName)),
+                VolumePolicy = same.Any(o => o.VolumePolicy == "announcement") ? "announcement" : rep.VolumePolicy,
+                DurationS = same.Max(o => o.DurationS),
+                ScheduleTemplate = Join(same.Select(o => o.ScheduleTemplate)),
+            });
+        }
+        return merged;
     }
 
     private static void AddOccurrence(CompileResult result, DateTimeZone tz, LocalDate date, string dateStr,

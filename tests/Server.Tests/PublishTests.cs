@@ -31,6 +31,56 @@ public class ScheduleCompilerTests
         Assert.Equal(Instant.FromUtc(2026, 11, 4, 14, 30).ToUnixTimeMilliseconds(), start.StartsAt);
     }
 
+    static CompilePeriod P(int idx, string name, string start, string end, string sound = "std-bell",
+        string policy = "announcement", int seconds = 3) => new(idx, name, start, end, 0, sound, policy, seconds);
+
+    [Fact]
+    public void Back_to_back_periods_ring_once_at_the_changeover()
+    {
+        // 3rd block ends 13:21 as pass starts; pass ends 13:24 as 4th block starts
+        var hs = new CompileTemplate(1, "High School", new TargetScope(true, null, null),
+            [P(0, "3rd block", "11:09", "13:21"), P(1, "pass", "13:21", "13:24"), P(2, "4th block", "13:24", "15:03")],
+            new SortedSet<int>([3]));
+        var res = ScheduleCompiler.Compile(Chicago, new LocalDate(2026, 11, 4), new LocalDate(2026, 11, 4), [hs], [], [], 0);
+
+        Assert.Equal(["11:09", "13:21", "13:24", "15:03"], res.Occurrences.OrderBy(o => o.StartsAt).Select(o => o.LocalHm));
+        var changeover = res.Occurrences.Single(o => o.LocalHm == "13:21");
+        Assert.Equal("start", changeover.Kind);                     // the starting period represents the bell
+        Assert.Equal("pass / 3rd block", changeover.BellName);
+        Assert.Equal(OccurrenceIds.Compute(1, 1, OccurrenceIds.TargetKey(hs.Target), "2026-11-04", "start"),
+            changeover.OccurrenceId);                              // stable id of the start bell
+        Assert.Equal("end", res.Occurrences.Single(o => o.LocalHm == "15:03").Kind);  // a lone end bell still rings
+    }
+
+    [Fact]
+    public void Two_schedules_with_the_same_time_and_target_ring_once()
+    {
+        var all = new TargetScope(true, null, null);
+        var hs = new CompileTemplate(1, "High School", all, [P(0, "Teacher Sign in", "07:15", "07:20")], new SortedSet<int>([3]));
+        var jh = new CompileTemplate(2, "JH Bell", all,
+            [P(0, "Teacher sign in", "07:15", "07:20", sound: "std-chime", policy: "inherit", seconds: 5)], new SortedSet<int>([3]));
+        var res = ScheduleCompiler.Compile(Chicago, new LocalDate(2026, 11, 4), new LocalDate(2026, 11, 4), [hs, jh], [], [], 0);
+
+        Assert.Equal(2, res.Occurrences.Count);                    // 07:15 and 07:20, once each
+        var first = res.Occurrences.Single(o => o.LocalHm == "07:15");
+        Assert.Equal("Teacher Sign in", first.BellName);           // same name in other spelling: shown once
+        Assert.Equal("std-bell", first.SoundId);                   // first schedule's bell
+        Assert.Equal("announcement", first.VolumePolicy);          // the louder policy wins
+        Assert.Equal(5, first.DurationS);                          // the longer bell wins
+        Assert.Equal("High School / JH Bell", first.ScheduleTemplate);
+    }
+
+    [Fact]
+    public void Same_time_for_different_targets_is_not_merged_by_the_server()
+    {
+        var hs = new CompileTemplate(1, "High School", new TargetScope(true, null, null),
+            [P(0, "Lunch", "11:30", "12:00")], new SortedSet<int>([3]));
+        var jh = new CompileTemplate(2, "JH", new TargetScope(false, [7], null),
+            [P(0, "Lunch", "11:30", "12:00")], new SortedSet<int>([3]));
+        var res = ScheduleCompiler.Compile(Chicago, new LocalDate(2026, 11, 4), new LocalDate(2026, 11, 4), [hs, jh], [], [], 0);
+        Assert.Equal(4, res.Occurrences.Count);                    // each computer merges what reaches it
+    }
+
     [Fact]
     public void Holiday_wins_over_override_and_weekday()
     {

@@ -27,10 +27,14 @@ public sealed class ReceiptsService
             ("$t", _time.GetUtcNow().ToUnixTimeMilliseconds()));
     }
 
-    public List<RecentBell> RecentBells(int limit, long nowMs)
+    /// pastOnly (History): bells whose time has come, newest first. A bell counts when the latest
+    /// publish still has it or an endpoint reported it, so duplicates merged away by a later publish
+    /// do not show up as unanswered.
+    public List<RecentBell> RecentBells(int limit, long nowMs, bool pastOnly = false)
     {
         limit = Math.Clamp(limit <= 0 ? 50 : limit, 1, 200);
         using var conn = _db.Open();
+        var latest = Convert.ToInt64(conn.Scalar("SELECT COALESCE(MAX(revision), 0) FROM published_revisions") ?? 0);
 
         // Latest revision metadata per stable occurrence id, soonest-in-future-first-then-recent-past:
         using var cmd = conn.CreateCommand();
@@ -40,9 +44,14 @@ public sealed class ReceiptsService
             FROM occurrences o
             JOIN (SELECT occurrence_id, MAX(revision) AS mr FROM occurrences GROUP BY occurrence_id) m
               ON m.occurrence_id = o.occurrence_id AND m.mr = o.revision
+            WHERE $past = 0 OR (o.starts_at <= $now AND (o.revision = $latest
+                  OR EXISTS (SELECT 1 FROM receipts rc WHERE rc.ref_id = o.occurrence_id)))
             ORDER BY o.starts_at DESC LIMIT $l
             """;
         cmd.Parameters.AddWithValue("$l", limit);
+        cmd.Parameters.AddWithValue("$past", pastOnly ? 1 : 0);
+        cmd.Parameters.AddWithValue("$now", nowMs);
+        cmd.Parameters.AddWithValue("$latest", latest);
         var bells = new List<(string Id, string BellName, string Kind, string Template, string Date, string Hm, long StartsAt)>();
         using (var r = cmd.ExecuteReader())
             while (r.Read())
