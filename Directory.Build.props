@@ -10,5 +10,7 @@
     <Version Condition="'$(Version)' == ''">0.9.0</Version>
     <Company>SchoolBell pilot</Company>
     <Product>SchoolBell</Product>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <Copyright>SchoolBell contributors, licensed GPL-3.0-or-later</Copyright>
   </PropertyGroup>
 </Project>

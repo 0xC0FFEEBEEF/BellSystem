@@ -1,7 +1,7 @@
 # SchoolBell dependency and license inventory
 
 Generated from the committed lock files (`*/packages.lock.json`, `web/package-lock.json`).
-SchoolBell's own code: see the repository license.
+SchoolBell's own code: GNU General Public License v3.0 or later (`GPL-3.0-or-later`, see `LICENSE`). All bundled components below are GPLv3-compatible.
 
 ## Shipped runtime components
 

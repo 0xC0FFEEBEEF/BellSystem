@@ -53,3 +53,10 @@ Artifacts and checksums land in `dist/` (gitignored). See `docs/OPERATIONS.md`.
 For Windows deployment, **Admin → Enrollment → Download Windows Installer** creates
 one EXE with enrollment and the school CA certificate included. The page shows the
 PDQ parameters; the server address stays a parameter. See [Windows deployment](docs/windows-deployment.md).
+
+## License
+
+SchoolBell is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version. See `LICENSE`. Third-party components and their
+licenses are listed in `LICENSES.md`.
