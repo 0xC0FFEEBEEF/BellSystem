@@ -63,7 +63,11 @@ Exit codes: 0 ok · 2 bad or missing argument · 10 installed but enrollment fai
 
 ## 4. Releases
 
-Latest: **v0.9.7** (commit `7ec4a66`, 2026-11-05): client bell loop no longer wakes late after a bell plays (every
+Latest: **v0.9.8** (commit `d0a9cf3`, 2026-11-05): bell retries within 4 s of the bell's time for passing failures,
+6 s missed-bell grace, computers keep their connection when one message fails (field: a reconnect loop), sound
+cache swap retries Windows file locks, reconnect header capped at 100 queued results, History per-computer details
+with a no-report list, log times in school time. Server bundle sha256 `38f648a1…eef6`, installer `8ac490eb…1499`.
+Before that: **v0.9.7** (commit `7ec4a66`, 2026-11-05): client bell loop no longer wakes late after a bell plays (every
 other bell expired in the field), pre-publish bells not reported missed, hold to talk starts once every connected
 computer is ready, Admin → Log with .txt download. Server bundle sha256 `95a1d81b…0907a`, installer `17d95eb7…eb45`.
 Earlier: **v0.9.6** (`f74d477`, one bell per moment, scheduled bells in History), **v0.9.5** (`53f3c6a`, schedules over
