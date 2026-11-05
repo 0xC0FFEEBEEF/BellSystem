@@ -76,12 +76,23 @@ export class LiveSession {
       });
 
       this.pollTimer = window.setInterval(() => this.poll(), 700);
-      const wait = Math.max(0, (this.status.readyAt ?? Date.now()) - Date.now()) + 300;
-      window.setTimeout(() => {
-        if (this.status.phase !== "preparing") return;
-        this.sending = true;
-        this.set({ phase: "ready", message: "Ready — speak now. Release (or press Stop) to finish." });
-      }, wait);
+      // The server starts the stream as soon as every connected computer is ready (usually well
+      // under a second); the preparation window is only the longest wait. Watch for that start.
+      const id = live.announcement_id as string;
+      const deadline = (live.window_closes_at ?? Date.now() + 5000) + 1500;
+      let started = !!live.started_at;
+      const phase = (): LivePhase => this.status.phase;   // this.set() changes it; TS cannot see that
+      while (!started && phase() === "preparing" && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 150));
+        try {
+          const a = await get(`/api/announcements/${encodeURIComponent(id)}`);
+          if (a.status !== "active") return;   // ended server-side: poll() reports it
+          started = !!a.started_at;
+        } catch { /* transient: keep waiting until the deadline */ }
+      }
+      if (phase() !== "preparing") return;
+      this.sending = true;
+      this.set({ phase: "ready", message: "Ready — speak now. Release (or press Stop) to finish." });
     } catch (e: any) {
       this.fail(e?.message ?? String(e));
     }

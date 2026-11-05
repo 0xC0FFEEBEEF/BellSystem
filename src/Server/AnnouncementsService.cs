@@ -109,8 +109,9 @@ public sealed partial class AnnouncementsService
             chime, $"Office — {targetLabel}");
         foreach (var (deviceId, _) in targets) _outbox.Enqueue(deviceId, offerEnv);
 
-        _log.LogInformation("live announcement {AnnouncementId} offered to {Count} device(s); ready window closes at {Window}",
+        _log.LogInformation("live announcement {AnnouncementId} offered to {Count} device(s); ready window closes at {Window} at the latest",
             announcementId, targets.Count, DateTimeOffset.FromUnixTimeMilliseconds(windowClosesAt).ToString("o"));
+        CloseWindowIfAllAnswered(announcementId);   // no connected computer: nothing to wait for
         return new(201, null, Read(announcementId), targets.Count);
     }
 
@@ -118,6 +119,38 @@ public sealed partial class AnnouncementsService
     /// (offline => expired, connected-but-silent => failed(ready_timeout)); ready devices get a
     /// media token and a bounded send queue.
     public int ClosePreparationWindows()
+    {
+        lock (_windowGate) return ClosePreparationWindowsLocked();
+    }
+
+    private readonly object _windowGate = new();
+
+    /// Ends the wait as soon as every CONNECTED computer in the audience has answered (ready or
+    /// failed); the preparation window is only the longest wait, for computers that stay silent.
+    /// Offline computers cannot answer and are reported expired when the window closes.
+    private void CloseWindowIfAllAnswered(string announcementId)
+    {
+        lock (_windowGate)
+        {
+            using (var conn = _db.Open())
+            {
+                var open = conn.Scalar("SELECT 1 FROM announcements WHERE announcement_id = $a AND status = 'active' AND kind = 'live' AND window_closes_at IS NOT NULL",
+                    ("$a", announcementId));
+                if (open is null) return;
+                foreach (var (deviceId, _) in SnapshotDevices(conn, announcementId))
+                {
+                    if (_registry.Lookup(deviceId) is null) continue;
+                    if (!conn.Exists("SELECT COUNT(*) FROM delivery_results WHERE announcement_id = $a AND device_id = $d AND state IN ('ready', 'failed')",
+                        ("$a", announcementId), ("$d", deviceId))) return;
+                }
+                conn.Run("UPDATE announcements SET window_closes_at = $n WHERE announcement_id = $a AND window_closes_at IS NOT NULL",
+                    ("$n", NowMs), ("$a", announcementId));
+            }
+            ClosePreparationWindowsLocked();
+        }
+    }
+
+    private int ClosePreparationWindowsLocked()
     {
         long now = NowMs;
         var due = new List<string>();
@@ -290,13 +323,19 @@ public sealed partial class AnnouncementsService
     {
         var ann = Read(announcementId);
         if (ann is null || !IsTargeted(announcementId, deviceId)) return false;
-        RecordDelivery(announcementId, deviceId, ReceiptState.Ready, null, "device");
-        if (ann.Status == "active" && (!ann.IsLive || ann.StartedAt is not null))
+        lock (_windowGate)
         {
-            // window already closed (or a recorded offer): the device may start receiving now
-            _media.OpenStream(announcementId, deviceId, ann.IsLive ? null : ann.RecordingPath);
-            IssueMediaToken(announcementId, deviceId);
+            RecordDelivery(announcementId, deviceId, ReceiptState.Ready, null, "device");
+            ann = Read(announcementId)!;   // re-read under the gate: the window may have just closed
+            if (ann.Status == "active" && (!ann.IsLive || ann.StartedAt is not null))
+            {
+                // window already closed (or a recorded offer): the device may start receiving now
+                _media.OpenStream(announcementId, deviceId, ann.IsLive ? null : ann.RecordingPath);
+                IssueMediaToken(announcementId, deviceId);
+                return true;
+            }
         }
+        if (ann.IsLive) CloseWindowIfAllAnswered(announcementId);
         return true;
     }
 
@@ -306,6 +345,7 @@ public sealed partial class AnnouncementsService
         RecordDelivery(announcementId, deviceId, ReceiptState.Failed, reason is null or "" ? "rejected" : reason, "device");
         _log.LogInformation("device {DeviceId} rejected announcement {AnnouncementId} ({Reason})",
             deviceId, announcementId, reason);
+        CloseWindowIfAllAnswered(announcementId);
         return true;
     }
 

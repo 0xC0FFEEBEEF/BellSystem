@@ -104,6 +104,7 @@ public static class AnnouncementsEndpoints
                 device_count = res.DeviceCount,
                 offer_expires_at = res.Announcement.OfferExpiresAt,
                 window_closes_at = res.Announcement.WindowClosesAt,
+                started_at = res.Announcement.StartedAt,   // set when no connected computer needed waiting for
                 max_duration_s = res.Announcement.MaxDurationS,
                 chime = res.Announcement.Chime,
                 lease_id = res.Announcement.LeaseId,
