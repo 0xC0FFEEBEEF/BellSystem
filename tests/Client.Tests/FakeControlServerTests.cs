@@ -487,4 +487,29 @@ public class FakeControlServerTests
         Assert.Equal(DeviceAgent.ResyncHeaderReceipts, server.Resyncs[0].Receipts.Count);
         Assert.Equal(1, server.ConnectionCount);
     }
+
+    [Fact]
+    public async Task Retries_Stop_Four_Seconds_After_The_Bell_Time()
+    {
+        var deviceId = Guid.NewGuid().ToString();
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        await using var server = await FakeControlServer.StartAsync(deviceId, secret);
+        var bell = System.Text.Encoding.UTF8.GetBytes("BELL");
+        server.Sounds["std-bell"] = bell;
+        var now = NowMs();
+        server.QueueEvent(Protocol.TScheduleManifest, PayloadSerializer.Node(ManifestTestKit.BuildManifest(13, now, [
+            ManifestTestKit.Bell("slow-fail", now + 1_500, now + 7 * 86_400_000)], soundSha: Sha(bell))));
+
+        await using var h = StartAgentAsync(server);
+        h.Player.PlayMs = 1_500;                                   // each failed attempt takes 1.5 s
+        lock (h.Player.Script)
+        {
+            h.Player.Script.Enqueue(new BellPlayOutcome(false, "renderer_timeout"));   // ends ~1.5 s after the bell
+            h.Player.Script.Enqueue(new BellPlayOutcome(false, "renderer_timeout"));   // retry at ~2.5 s, ends ~4 s
+            h.Player.Script.Enqueue(new BellPlayOutcome(true, null));                  // would be ~6.5 s: too late
+        }
+        Assert.True(await server.WaitUntilAsync(
+            () => AgentKit.CountReceipts(server.Received, "slow-fail", ReceiptState.Failed) == 1, 20_000));
+        lock (h.Player.Requests) Assert.Equal(2, h.Player.Requests.Count(r => r.OccurrenceId == "slow-fail"));
+    }
 }

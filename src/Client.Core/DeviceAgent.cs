@@ -368,11 +368,13 @@ public sealed partial class DeviceAgent
         return (ReceiptState.Unknown, null);
     }
 
-    /// A bell that did not play for a passing reason (speaker briefly gone, tray app restarting,
-    /// playback error) is tried again, while it is still close to its time. Missing or unreadable
-    /// sounds are not retried: another try cannot fix them.
+    /// Queued results sent in the reconnect header (the server reads at most 32 KB from a device).
     public const int ResyncHeaderReceipts = 100;
-    internal const long BellRetryWindowMs = 20_000;
+
+    /// A bell that did not play for a passing reason (speaker briefly gone, tray app restarting,
+    /// playback error) is tried again, but only within 4 s of its time: later than that it no longer
+    /// marks the moment. Missing or unreadable sounds are not retried: another try cannot fix them.
+    internal const long BellRetryWindowMs = 4_000;
     internal static readonly int[] BellRetryDelaysMs = [1_000, 2_500];
     internal static bool RetryableBellFailure(string? reason) =>
         reason is "renderer" or "renderer_timeout" or "renderer_lost" or "output_missing" or "no_renderer";
