@@ -17,6 +17,13 @@ builder.Configuration.Sources.Insert(0, new JsonConfigurationSource
 });
 builder.WebHost.UseUrls(builder.Configuration["SchoolBell:Urls"] ?? "http://127.0.0.1:5001");
 
+// Admin > Server log: every line also goes to an in-memory/daily-file log the office can read and
+// download. The provider gets everything; LogBuffer.Accepts decides (Verbose adds debug detail).
+var logBuffer = new LogBuffer();
+builder.Services.AddSingleton(logBuffer);
+builder.Logging.AddProvider(new LogBufferProvider(logBuffer));
+builder.Logging.AddFilter<LogBufferProvider>(null, LogLevel.Trace);
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(sp => ServerConfig.Read(
     sp.GetRequiredService<IConfiguration>(),
@@ -61,6 +68,7 @@ builder.Services.AddHostedService<TranscriptionWorkerHost>();
 builder.Services.AddHostedService<RetentionWorkerHost>();
 
 var app = builder.Build();
+logBuffer.EnableFiles(Path.Combine(app.Services.GetRequiredService<ServerConfig>().DataDir, "logs"));
 
 // MediaRouter callbacks are assigned (not constructor-injected) so the media path never depends on
 // the announcement service and the dependency graph stays acyclic.
@@ -116,6 +124,7 @@ AdminEndpoints.Map(app);
 DeviceEndpoints.Map(app);
 AnnouncementsEndpoints.Map(app);
 ExtraEndpoints.Map(app);
+LogEndpoints.Map(app);
 
 app.Map("/ws/control", async (HttpContext ctx, ControlHub hub) => await hub.HandleAsync(ctx));
 // Office microphone (cookie session + Origin check + talk lease) and device media (single-use OTP).

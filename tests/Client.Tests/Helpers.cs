@@ -93,14 +93,15 @@ public static class ManifestTestKit
 
     /// Mirrors the live server (PublishService.SigningKey): the signing key IS the
     /// device verify key derived from the trust pin.
+    /// generatedAt defaults to the horizon start (published before the bells it carries).
     public static ScheduleManifestPayload BuildManifest(long revision, long nowMs,
-        IEnumerable<Occurrence>? occurrences = null, string? soundSha = null)
+        IEnumerable<Occurrence>? occurrences = null, string? soundSha = null, long? generatedAt = null)
     {
         var manifest = new ScheduleManifestPayload
         {
             Revision = revision,
             SchoolTz = "America/Chicago",
-            GeneratedAt = nowMs,
+            GeneratedAt = generatedAt ?? nowMs - 12 * 3_600_000,
             HorizonStart = nowMs - 12 * 3_600_000,
             HorizonEnd = nowMs + 7 * 86_400_000,
             ExpiresAt = nowMs + 7 * 86_400_000 + 3_600_000,

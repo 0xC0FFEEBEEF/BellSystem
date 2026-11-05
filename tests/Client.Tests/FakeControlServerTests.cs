@@ -384,4 +384,30 @@ public class FakeControlServerTests
             Assert.Equal("later", h.Player.Requests[1].OccurrenceId);
         }
     }
+
+    [Fact]
+    public async Task A_Bell_Minutes_After_One_That_Played_Still_Rings_On_Time()
+    {
+        // field bug: 3-min pass bells expired on most computers because the loop slept from a clock
+        // reading taken before the previous 3-second bell played, waking past the 2 s grace
+        var deviceId = Guid.NewGuid().ToString();
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        await using var server = await FakeControlServer.StartAsync(deviceId, secret);
+        var bell = System.Text.Encoding.UTF8.GetBytes("BELL");
+        server.Sounds["std-bell"] = bell;
+        var now = NowMs();
+        server.QueueEvent(Protocol.TScheduleManifest, PayloadSerializer.Node(ManifestTestKit.BuildManifest(8, now, [
+            ManifestTestKit.Bell("block-ends", now + 2_000, now + 7 * 86_400_000),
+            ManifestTestKit.Bell("pass-ends", now + 8_000, now + 7 * 86_400_000),
+        ], soundSha: Sha(bell))));
+
+        await using var h = StartAgentAsync(server);
+        h.Player.PlayMs = 3_500;                                   // a 3 s bell plus fade and pipe
+        Assert.True(await server.WaitUntilAsync(
+            () => AgentKit.CountReceipts(server.Received, "block-ends", ReceiptState.Completed) == 1 &&
+                  (AgentKit.CountReceipts(server.Received, "pass-ends", ReceiptState.Completed) == 1 ||
+                   AgentKit.CountReceipts(server.Received, "pass-ends", ReceiptState.Expired) == 1), 20_000));
+        Assert.Equal(0, AgentKit.CountReceipts(server.Received, "pass-ends", ReceiptState.Expired));
+        Assert.Equal(1, AgentKit.CountReceipts(server.Received, "pass-ends", ReceiptState.Completed));
+    }
 }

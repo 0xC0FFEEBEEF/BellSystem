@@ -19,12 +19,43 @@ public sealed class ReceiptsService
         if (string.IsNullOrEmpty(refId) || !Protocol.ReceiptStates.Contains(state))
             return -1; // protocol violation; caller closes connection
         using var conn = _db.Open();
-        return conn.Run("""
+        var n = conn.Run("""
             INSERT OR IGNORE INTO receipts(device_id, ref_id, state, at, error_code, created_at)
             VALUES ($d, $r, $s, $a, $e, $t)
             """,
             ("$d", deviceId), ("$r", refId), ("$s", state), ("$a", at), ("$e", errorCode),
             ("$t", _time.GetUtcNow().ToUnixTimeMilliseconds()));
+        if (n > 0) LogReceipt(conn, deviceId, refId, state, errorCode);
+        return n;
+    }
+
+    /// Server log: what each computer did with each bell or announcement. Anything that did not
+    /// play is logged normally; progress and success only with verbose logging.
+    private void LogReceipt(Microsoft.Data.Sqlite.SqliteConnection conn, string deviceId, string refId, string state, string? errorCode)
+    {
+        var level = state is ReceiptState.Completed or ReceiptState.Started or ReceiptState.Ready or ReceiptState.Offered
+            ? Microsoft.Extensions.Logging.LogLevel.Debug : Microsoft.Extensions.Logging.LogLevel.Information;
+        if (!_log.IsEnabled(level)) return;
+        try
+        {
+            var device = conn.Scalar("""
+                SELECT CASE WHEN active_user IS NOT NULL THEN active_user || ' (' || COALESCE(computer_name, name) || ')'
+                            ELSE COALESCE(computer_name, name) END FROM devices WHERE device_id = $d
+                """, ("$d", deviceId)) as string ?? deviceId;
+            string what;
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT bell_name, local_date, local_hm FROM occurrences WHERE occurrence_id = $r ORDER BY revision DESC LIMIT 1";
+                cmd.Parameters.AddWithValue("$r", refId);
+                using var r = cmd.ExecuteReader();
+                what = r.Read() ? $"scheduled bell '{r.GetString(0)}' {r.GetString(1)} {r.GetString(2)}"
+                    : conn.Scalar("SELECT bell_name FROM bell_rings WHERE ring_id = $r", ("$r", refId)) is string ring
+                        ? $"manual bell '{ring}'" : $"announcement {refId}";
+            }
+            _log.Log(level, "{Device}: {What} -> {State}{Error}", device, what, state,
+                errorCode is null ? "" : $" ({errorCode})");
+        }
+        catch (Exception e) { _log.LogDebug("receipt log lookup failed: {Error}", e.Message); }
     }
 
     /// pastOnly (History): bells whose time has come, newest first. A bell counts when the latest

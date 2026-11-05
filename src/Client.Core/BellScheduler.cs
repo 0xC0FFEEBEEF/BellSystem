@@ -48,6 +48,9 @@ public sealed class BellScheduler
             if (!occ.Target.Matches(deviceId, groups)) continue;
             if (_ledger.Has(occ.OccurrenceId)) continue; // duplicate trigger / already handled
             if (occ.ExpiresAt <= nowMs) continue;        // past its own expiry: drop silently
+            // already past when the schedule was published (the horizon starts at midnight): nobody
+            // could ring it under this manifest, so it is not reported as missed
+            if (occ.StartsAt < manifest.GeneratedAt) continue;
 
             if (occ.StartsAt > nowMs)
             {

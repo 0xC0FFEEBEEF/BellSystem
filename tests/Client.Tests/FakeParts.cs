@@ -7,10 +7,13 @@ public sealed class FakeBellPlayer : IBellPlayer
 {
     public List<PipeBellPlay> Requests { get; } = [];
     public bool Played { get; set; } = true;
-    public Task<BellPlayOutcome> PlayAsync(PipeBellPlay play, CancellationToken ct)
+    /// How long a bell takes to play (a real 3-second bell plus fade); 0 = instant.
+    public int PlayMs { get; set; }
+    public async Task<BellPlayOutcome> PlayAsync(PipeBellPlay play, CancellationToken ct)
     {
         lock (Requests) Requests.Add(play);
-        return Task.FromResult(new BellPlayOutcome(Played, Played ? null : "renderer"));
+        if (PlayMs > 0) await Task.Delay(PlayMs, ct);
+        return new BellPlayOutcome(Played, Played ? null : "renderer");
     }
 }
 

@@ -57,6 +57,29 @@ public class BellSchedulerTests
     }
 
     [Fact]
+    public void Bells_already_past_when_the_schedule_was_published_are_not_reported_missed()
+    {
+        var dir = TestDirs.Create("sched-before-publish");
+        try
+        {
+            var ledger = new ClaimLedger(dir);
+            var sched = new BellScheduler(ledger, graceSeconds: 2);
+            // published at 15:05 with today's 15:03 bell still in it (the horizon starts at midnight)
+            var m = ManifestTestKit.BuildManifest(2, T0, [
+                ManifestTestKit.Bell("before-publish", startsAt: T0 - 120_000, expiresAt: T0 + 100_000),
+                ManifestTestKit.Bell("after-publish", startsAt: T0 - 30_000, expiresAt: T0 + 100_000),
+            ], generatedAt: T0 - 60_000);
+
+            var ev = sched.Evaluate(m, T0, liveActive: false, "dev", []);
+            var d = Assert.Single(ev.Decisions);                     // only the bell this device missed
+            Assert.Equal("after-publish", d.OccurrenceId);
+            Assert.Equal(BellAction.Expired, d.Action);
+            Assert.False(ledger.Has("before-publish"));
+        }
+        finally { TestDirs.TryDelete(dir); }
+    }
+
+    [Fact]
     public void Past_horizon_after_sleep_yields_exactly_N_expired_in_one_batch()
     {
         var dir = TestDirs.Create("sched-horizon");

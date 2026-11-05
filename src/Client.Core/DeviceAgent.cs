@@ -295,8 +295,10 @@ public sealed partial class DeviceAgent
                                 other.Occurrence.BellName, other.OccurrenceId, ordered[0].Occurrence.BellName, state);
                         }
                     }
+                    // measure from NOW: playing the bells above took seconds, and waking that much
+                    // late put the next bell past its grace window (every other bell expired)
                     delayMs = ev.NextDueMs is long due
-                        ? Math.Clamp(due - now, 50, 6 * 3_600_000L)
+                        ? Math.Clamp(due - Clock.NowMs(), 50, 6 * 3_600_000L)
                         : 30_000;
                 }
             }

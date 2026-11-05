@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, del, fmtTime, get, post, put, upload, type Device } from "../api";
 import { AudienceSelector, audienceTarget, audienceValid, Badge, Card, Empty, Field, useBusy, useData, useMe, type Audience } from "../ui";
 
-const TABS = { users: "Users", groups: "Groups", enroll: "Enrollment", keepawake: "Keep awake", settings: "Settings", updates: "Updates", backup: "Backup", diag: "Diagnostics" } as const;
+const TABS = { users: "Users", groups: "Groups", enroll: "Enrollment", keepawake: "Keep awake", settings: "Settings", updates: "Updates", backup: "Backup", log: "Log", diag: "Diagnostics" } as const;
 type Tab = keyof typeof TABS;
 
 export function Admin() {
@@ -21,6 +21,7 @@ export function Admin() {
       {tab === "settings" && <Settings />}
       {tab === "updates" && <Updates />}
       {tab === "backup" && <Backup />}
+      {tab === "log" && <ServerLog />}
       {tab === "diag" && <Diagnostics />}
     </div>
   );
@@ -275,6 +276,36 @@ function Backup() {
         <form onSubmit={(e) => { e.preventDefault(); if (!confirm("Restore this backup? SchoolBell restarts.")) return; const fd = new FormData(e.currentTarget); run(() => upload("/api/admin/restore", fd), "Restoring — reload this page in a minute"); }}>
           <input type="file" name="file" accept=".tar.gz,.gz" required /> <button className="danger">Restore</button>
         </form>
+      </Card>
+    </div>
+  );
+}
+
+function ServerLog() {
+  const { busy, run } = useBusy();
+  const [level, setLevel] = useState("");
+  const [q, setQ] = useState("");
+  const [days, setDays] = useState(1);
+  const logs = useData<{ verbose: boolean; lines: string[] }>(
+    `/api/admin/logs?lines=500${level ? `&level=${level}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`, 5000);
+  const lines = logs.data?.lines ?? [];
+  return (
+    <div className="grid">
+      <Card title="Server log" className="span2" actions={<>
+        <label className="check"><input type="checkbox" checked={!!logs.data?.verbose} disabled={busy || !logs.data}
+          onChange={(e) => { const on = e.target.checked; run(async () => { await post("/api/admin/logs/verbose", { on }); logs.reload(); }, on ? "Verbose logging on" : "Verbose logging off"); }} /> Verbose</label>
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Days to download">
+          <option value={1}>Today</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option></select>
+        <a className="file-btn" href={`/api/admin/logs.txt?days=${days}`} download>Download .txt</a></>}>
+        <p className="dim small">Bells that a computer missed or could not play, computers connecting and disconnecting, publishing,
+          updates and errors, newest first. Verbose adds every bell that played and other detail. Kept for 14 days.</p>
+        <div className="row">
+          <select value={level} onChange={(e) => setLevel(e.target.value)} aria-label="Level">
+            <option value="">Everything</option><option value="warn">Warnings and errors</option></select>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter: computer, bell, user…" aria-label="Filter" />
+        </div>
+        {lines.length === 0 ? <Empty>No log lines{q || level ? " match" : " yet"}.</Empty>
+          : <pre className="code log">{[...lines].reverse().join("\n")}</pre>}
       </Card>
     </div>
   );

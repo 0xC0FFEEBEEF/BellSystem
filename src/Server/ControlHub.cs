@@ -155,6 +155,9 @@ public sealed class ControlHub
             return;
         }
 
+        var label = _devices.Get(resp.DeviceId)?.Label ?? resp.DeviceId;
+        _log.LogInformation("{Device} connected (client {Version}, accepts {Max} KB messages)",
+            label, wconn.ClientVersion ?? "unknown", wconn.MaxMessageBytes / 1024);
         var sendLoop = wconn.RunSendLoopAsync(lifetime.Token);
         try
         {
@@ -163,6 +166,7 @@ public sealed class ControlHub
         finally
         {
             _registry.Remove(wconn.DeviceId, wconn);
+            _log.LogInformation("{Device} disconnected", label);
             lifetime.Cancel();
             wconn.Close(WebSocketCloseStatus.NormalClosure, "closing");
             try { await sendLoop; } catch { }
