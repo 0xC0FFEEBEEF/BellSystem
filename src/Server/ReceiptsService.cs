@@ -19,6 +19,13 @@ public sealed class ReceiptsService
         if (string.IsNullOrEmpty(refId) || !Protocol.ReceiptStates.Contains(state))
             return -1; // protocol violation; caller closes connection
         using var conn = _db.Open();
+        // A computer enrolled at 14:02 receives the whole day's schedule and reports every earlier
+        // bell as missed; it was never supposed to ring them. Accept and drop those.
+        if (state == ReceiptState.Expired && conn.Scalar("""
+                SELECT 1 FROM occurrences o JOIN devices d ON d.device_id = $d
+                WHERE o.occurrence_id = $r AND o.starts_at < d.first_seen LIMIT 1
+                """, ("$d", deviceId), ("$r", refId)) is not null)
+            return 0;
         var n = conn.Run("""
             INSERT OR IGNORE INTO receipts(device_id, ref_id, state, at, error_code, created_at)
             VALUES ($d, $r, $s, $a, $e, $t)

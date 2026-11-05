@@ -47,6 +47,10 @@ function Detail({ d }: { d: Device }) {
   const settings = useData<any>(me.role === "admin" ? `/api/admin/devices/${d.device_id}/settings` : null);
   const st = (d as any).status_report;
   const upd = (d as any).update;
+  // An update that started and then went silent: the computer never came back to report.
+  const updAt = upd?.at ? (upd.at < 1e12 ? upd.at * 1000 : upd.at) : 0;
+  const stuck = upd && ["installing", "downloading", "verified", "received"].includes(upd.state)
+    && d.state === "offline" && updAt > 0 && Date.now() - updAt > 15 * 60_000;
   return (
     <div className="grid detail-grid">
       <Card title="Status reported by the computer">
@@ -63,7 +67,9 @@ function Detail({ d }: { d: Device }) {
             <dt>Clock offset</dt><dd>{st.clock_offset_ms} ms vs server</dd>
             <dt>Last playback</dt><dd>{st.last_playback ? <><Badge state={st.last_playback.state} /> {fmtTime(st.last_playback.at)}</> : "—"}</dd>
             <dt>Tray app</dt><dd>{st.companion}</dd>
-            <dt>Client version</dt><dd>{(d as any).client_version ?? "?"}{upd ? <> · last update: <Badge state={upd.state} /> {upd.version} {upd.error ?? ""}</> : null}</dd>
+            <dt>Client version</dt><dd>{(d as any).client_version ?? "?"}{upd ? <> · last update: <Badge state={upd.state} /> {upd.version} {upd.error ?? ""}</> : null}
+              {stuck && <p className="warn-text small">This computer went offline while updating to {upd.version} and has not come back.
+                Check it: the SchoolBell service may be stopped. Re-running the Windows installer repairs it and keeps its enrollment.</p>}</dd>
             <dt>Device id</dt><dd><code>{d.device_id}</code></dd>
           </dl>)}
       </Card>

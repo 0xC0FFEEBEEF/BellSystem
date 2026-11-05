@@ -270,6 +270,16 @@ public sealed class ControlHub
                 }
                 _updates?.OnDeviceStatus(deviceId, us);
                 return true;
+            case Protocol.TManifestRejected:
+                // a device refusing a schedule copy it does not need (it already has a newer one) is
+                // normal; anything else (bad signature) is worth a warning. Never close for it.
+                var rejected = PayloadSerializer.ToPayload<ManifestRejectedPayload>(env);
+                if (rejected?.Reason == "revision_not_newer")
+                    _log.LogDebug("{Device} already has schedule revision {Revision} or newer", DeviceLabel(deviceId), rejected.Revision);
+                else
+                    _log.LogWarning("{Device} refused schedule revision {Revision}: {Reason}",
+                        DeviceLabel(deviceId), rejected?.Revision, rejected?.Reason ?? "no reason given");
+                return true;
             case Protocol.TKeepAwakeAck:
                 var ka = PayloadSerializer.ToPayload<KeepAwakeAckPayload>(env);
                 if (ka is null || string.IsNullOrEmpty(ka.PolicyId))
@@ -284,6 +294,8 @@ public sealed class ControlHub
                 return false;
         }
     }
+
+    private string DeviceLabel(string deviceId) => _devices.Get(deviceId)?.Label ?? deviceId;
 
     private void Resync(ControlConnection conn, ControlEnvelope env)
     {
@@ -317,6 +329,15 @@ public sealed class ControlHub
         // announcement.offer is never replayed (the device is reported `expired` instead) and a
         // used/expired media token is never replayed; recorded offers replay while valid.
         var replayed = _outbox.Replay(deviceId, payload.Cursor);
+        var latest = _publish.LatestRevision() ?? 0;
+        long knownRev;
+        using (var dbConn = _db.Open())
+        {
+            knownRev = Math.Max(payload.CacheRevision,
+                Convert.ToInt64(dbConn.Scalar("SELECT accepted_revision FROM devices WHERE device_id = $d", ("$d", deviceId)) ?? 0));
+        }
+        int sent = 0, expiredSkipped = 0, oldManifests = 0;
+        bool sentLatestManifest = false;
         foreach (var json in replayed)
         {
             // our own outbox: read it with the server-side limit (a manifest is often > 32 KB; the
@@ -328,25 +349,27 @@ public sealed class ControlHub
             }
             if (_announcements is not null && !_announcements.OutboxReplayOk(deviceId, e))
             {
-                _log.LogInformation("outbox replay skipped {EventType} for device {DeviceId} (expired live offer, or a used/expired media token)",
-                    e.Type, deviceId);
+                expiredSkipped++;   // expired live offer, or a used/expired media token
                 continue;
             }
             if (e.Type == Protocol.TScheduleManifest)
-                _log.LogDebug("outbox replay includes schedule.manifest for {DeviceId}", deviceId);
+            {
+                // only the newest schedule, and only to a device that does not have it yet: older
+                // copies are refused by the device anyway and each is 100+ KB
+                long rev = e.Payload?["revision"]?.GetValue<long>() ?? 0;
+                if (rev < latest || rev <= knownRev) { oldManifests++; continue; }
+                sentLatestManifest = true;
+            }
             conn.SendRaw(json);
+            sent++;
         }
+        if (replayed.Count > 0)
+            _log.Log(sent > 0 ? LogLevel.Information : LogLevel.Debug,
+                "{Device} resync: {Sent} queued event(s) sent, {Expired} expired offer(s) and {Old} superseded schedule(s) skipped",
+                DeviceLabel(deviceId), sent, expiredSkipped, oldManifests);
 
-        // (c) current manifest if the device is behind and no manifest was in the replay
-        var latest = _publish.LatestRevision() ?? 0;
-        long knownRev;
-        using (var dbConn = _db.Open())
-        {
-            knownRev = Math.Max(payload.CacheRevision,
-                Convert.ToInt64(dbConn.Scalar("SELECT accepted_revision FROM devices WHERE device_id = $d", ("$d", deviceId)) ?? 0));
-        }
-        bool replayedManifest = replayed.Any(j => j.Contains($"\"type\":\"{Protocol.TScheduleManifest}\""));
-        if (latest > 0 && knownRev < latest && !replayedManifest)
+        // (c) current manifest if the device is behind and the replay did not carry it
+        if (latest > 0 && knownRev < latest && !sentLatestManifest)
         {
             using var dbConn = _db.Open();
             var manifestJson = dbConn.Scalar(
@@ -364,7 +387,9 @@ public sealed class ControlHub
 
         // current device settings (output, volume, groups) on every connect — sent live, not via
         // the outbox, so reconnects do not pile up settings events
-        if (_settings is not null) conn.Send(_settings.Envelope(deviceId));
+        // No event id: an id that is not in the outbox would become the device's resync cursor, the
+        // cursor would not be found on the next connect, and the whole outbox would be replayed.
+        if (_settings is not null) conn.Send(_settings.Envelope(deviceId) with { EventId = null });
 
         // re-send active keep-awake policies (never expired ones)
         foreach (var policy in _keepAwake.ActivePoliciesFor(deviceId))
