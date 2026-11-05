@@ -63,10 +63,11 @@ Exit codes: 0 ok · 2 bad or missing argument · 10 installed but enrollment fai
 
 ## 4. Releases
 
-Latest: **v0.9.6** (commit `f74d477`, 2026-11-04): one bell per moment (same-time bells merge at compile;
-clients ring once across targets) and scheduled bells in History. Server bundle sha256 `0f00eff9…df54f`, installer
-`7debf52f…3d0d`. Also published: **v0.9.5** (`53f3c6a`, schedules over 32 KB now reach clients) and **v0.9.4**
-(`c60cf0e`). The repository is public since 2026-11-04. Assets:
+Latest: **v0.9.7** (commit `7ec4a66`, 2026-11-05): client bell loop no longer wakes late after a bell plays (every
+other bell expired in the field), pre-publish bells not reported missed, hold to talk starts once every connected
+computer is ready, Admin → Log with .txt download. Server bundle sha256 `95a1d81b…0907a`, installer `17d95eb7…eb45`.
+Earlier: **v0.9.6** (`f74d477`, one bell per moment, scheduled bells in History), **v0.9.5** (`53f3c6a`, schedules over
+32 KB reach clients), **v0.9.4** (`c60cf0e`). The repository is public since 2026-11-04. Assets:
 `schoolbell-server-linux-x64.tar.gz` (sha256 `fdae1554…bfdd9`), `install.sh`, `SchoolBellSetup.exe`
 (sha256 `1e880f9d…c151`, unsigned), `release-manifest.json` + `.sig`, `SHA256SUMS`, `LICENSE`,
 `LICENSES.md`. Version numbers only go up: a server already on a version never sees a rebuild of the

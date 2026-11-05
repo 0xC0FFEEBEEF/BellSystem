@@ -1,6 +1,6 @@
 # SchoolBell known issues and limits
 
-Current as of release 0.9.4. `HANDOFF.md` §5 lists what was verified and how.
+Current as of release 0.9.7. `HANDOFF.md` §5 lists what was verified and how.
 
 1. **Silent before the first sign-in since boot.** Windows 11 (25H2, tested in a VM) plays session-0
    audio as digital silence until someone has signed in once since boot. A locked or signed-out
@@ -18,8 +18,10 @@ Current as of release 0.9.4. `HANDOFF.md` §5 lists what was verified and how.
 5. **Crash window for bells.** A bell can be claimed and then not heard if the computer crashes between
    the claim and the speaker. Those show as `started` or `unknown`, never `completed`. Delivery is
    at most once per bell.
-6. **Missed bells are never replayed.** A computer that was off or offline when a bell was due records
-   it as `expired` rather than ringing late.
+6. **Missed bells are never replayed.** A computer that was off, asleep or offline when a bell was due
+   records it as `expired` rather than ringing late; the grace is 2 seconds. Admin → Log names each
+   computer and bell that expired. (Up to 0.9.6 a client bug also expired every bell that came a few
+   minutes after one that played; fixed in the 0.9.7 client.)
 7. **Slow networks.** A computer that cannot keep up with live audio builds a backlog in TCP and proxy
    buffers the server cannot see. Renderers discard audio older than 2 seconds, so nothing plays late,
    but the bandwidth is wasted. Real flow control needs device acknowledgements.
