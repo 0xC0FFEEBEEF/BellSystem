@@ -63,9 +63,10 @@ Exit codes: 0 ok · 2 bad or missing argument · 10 installed but enrollment fai
 
 ## 4. Releases
 
-Built, not yet published: **v0.9.9** (commit `e5959f4`): enrollment override (+5 computers / +24 h on used-up or expired
-enrollments), refused enrollments logged with the reason, enroll.log on the computer, no local expiry refusal.
-Server bundle sha256 `662f5258…3b7b`, installer `a0259f3f…7397`.
+Built, not yet published: **v0.9.9** (commit `e488edc`): enrollment override (+5 computers / +24 h on used-up or expired
+enrollments), refused enrollments logged with the reason, enroll.log on the computer, no local expiry refusal, PDQ
+parameters use the server's certified name (field: /SERVER=<IP> fails TLS). Server bundle sha256 `f210f7a7…bfdf`,
+installer `360c156b…179b`.
 Published: **v0.9.8** (commit `d0a9cf3`, 2026-11-05): bell retries within 4 s of the bell's time for passing failures,
 6 s missed-bell grace, computers keep their connection when one message fails (field: a reconnect loop), sound
 cache swap retries Windows file locks, reconnect header capped at 100 queued results, History per-computer details
