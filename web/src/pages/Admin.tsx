@@ -96,7 +96,10 @@ function Groups() {
 
 function Enrollment() {
   const tokens = useData<any[]>("/api/admin/enrollment-tokens");
-  const installer = useData<{ available: boolean; version?: string; detail?: string }>("/api/admin/enrollment-installer");
+  const installer = useData<{ available: boolean; version?: string; detail?: string; server_names?: string[] }>("/api/admin/enrollment-installer");
+  const names = installer.data?.server_names ?? [];
+  // computers must use a name the server's certificate covers (install.sh --hostname), not an IP it does not
+  const serverName = names.find((n) => n.toLowerCase() === location.host.toLowerCase()) ?? names[0] ?? location.host;
   const devices = useData<{ items: Device[] }>("/api/devices?page_size=200");
   const [f, setF] = useState({ label: "Deployment", max_uses: 50, expires_hours: 24 });
   const { busy, run } = useBusy();
@@ -119,7 +122,9 @@ function Enrollment() {
         <button className="primary" disabled={busy || !installer.data?.available} onClick={() => download(true)}>Download Windows Installer</button>
         {installer.data?.available && <p className="dim small">Windows client {installer.data.version}. Deploy only SchoolBellSetup.exe and run as an administrator.</p>}
         {installer.data && !installer.data.available && <p className="dim small">{installer.data.detail}</p>}
-        <Field label="PDQ parameters"><pre className="code">/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /SERVER={location.host} /LOG="C:\Windows\Temp\SchoolBell-setup.log"</pre></Field>
+        <Field label="PDQ parameters"><pre className="code">/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /SERVER={serverName} /LOG="C:\Windows\Temp\SchoolBell-setup.log"</pre></Field>
+        {names.length > 0 && <p className="dim small">Use <b>{names.join(" or ")}</b> as the server address. The server's certificate covers only
+          {names.length > 1 ? " these names" : " this name"}: an IP address or another name fails to enroll (setup exit code 10).</p>}
         <p className="dim small">The server address is a parameter; it is not included in the EXE. Keep the installer private and download a fresh copy when enrollment expires or its computer limit is reached.</p>
         <details><summary>Separate enrollment file (advanced)</summary>
           <button disabled={busy} onClick={() => download(false)}>Download schoolbell-enroll.json</button>

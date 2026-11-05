@@ -100,7 +100,10 @@ try
 }
 catch (HttpRequestException e)
 {
-    Note($"server {server} unreachable (check the address, port 443, a web-filter proxy, and that the school CA is trusted): {Inner(e)}");
+    var ipHint = Uri.TryCreate(server, UriKind.Absolute, out var su) && System.Net.IPAddress.TryParse(su.Host, out _)
+        ? " The server's certificate normally covers only its name (the --hostname given to install.sh): use that name, not the IP address."
+        : "";
+    Note($"server {server} unreachable (check the address, port 443, a web-filter proxy, and that the school CA is trusted): {Inner(e)}.{ipHint}");
     return 3;
 }
 catch (TaskCanceledException)

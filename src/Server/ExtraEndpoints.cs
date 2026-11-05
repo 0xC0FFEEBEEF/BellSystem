@@ -342,7 +342,10 @@ public static class ExtraEndpoints
             var (template, version, error) = DeploymentInstaller.Open(cfg, ctx.RequestServices.GetRequiredService<ReleaseTrust>());
             template?.Dispose();
             ctx.Response.Headers.CacheControl = "no-store";
-            return Http.Json(new { available = error is null, version, detail = error });
+            // the names the server's certificate covers (install.sh --hostname): the address computers must use
+            var names = cfg.AllowedWsOrigins.Select(o => Uri.TryCreate(o, UriKind.Absolute, out var uri) ? uri.Authority : null)
+                .Where(n => !string.IsNullOrEmpty(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return Http.Json(new { available = error is null, version, detail = error, server_names = names });
         });
 
         app.MapPost("/api/admin/enrollment-installer", async (HttpContext ctx) =>
