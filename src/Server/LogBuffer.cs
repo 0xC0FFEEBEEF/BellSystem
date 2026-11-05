@@ -22,6 +22,37 @@ public sealed class LogBuffer
     public bool Verbose => _verbose;
     public string? Directory => _dir;
 
+    /// The school's timezone (IANA id), so log times match the school's clocks rather than the
+    /// server's (often UTC). Looked up at most once a minute.
+    public Func<string?>? SchoolTimeZone { get; set; }
+    private TimeZoneInfo? _zone;
+    private long _zoneCheckedAt;
+    private int _zoneRefreshing;
+
+    public DateTimeOffset Now()
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (SchoolTimeZone is not null && Environment.TickCount64 - Interlocked.Read(ref _zoneCheckedAt) > 60_000
+            && Interlocked.Exchange(ref _zoneRefreshing, 1) == 0)
+        {
+            try
+            {
+                Interlocked.Exchange(ref _zoneCheckedAt, Environment.TickCount64);
+                var id = SchoolTimeZone();
+                _zone = string.IsNullOrEmpty(id) ? null : TimeZoneInfo.FindSystemTimeZoneById(id);
+            }
+            catch (Exception)
+            {
+                // not ready yet (startup, before the database): look again in a couple of seconds
+                _zone = null;
+                Interlocked.Exchange(ref _zoneCheckedAt, Environment.TickCount64 - 58_000);
+            }
+            finally { Interlocked.Exchange(ref _zoneRefreshing, 0); }
+        }
+        var zone = _zone;
+        return zone is null ? now.ToLocalTime() : TimeZoneInfo.ConvertTime(now, zone);
+    }
+
     /// Starts writing daily files; what was logged before this point is written first.
     public void EnableFiles(string dir)
     {
@@ -69,7 +100,7 @@ public sealed class LogBuffer
     {
         try
         {
-            var today = DateTime.Now.ToString("yyyy-MM-dd");
+            var today = Now().ToString("yyyy-MM-dd");
             if (_file is null || _fileDate != today)
             {
                 _file?.Dispose();
@@ -77,7 +108,7 @@ public sealed class LogBuffer
                 _file = new StreamWriter(new FileStream(Path.Combine(_dir!, $"server-{today}.log"),
                     FileMode.Append, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = true };
                 foreach (var old in System.IO.Directory.GetFiles(_dir!, "server-*.log"))
-                    if (string.CompareOrdinal(Path.GetFileName(old), $"server-{DateTime.Now.AddDays(-KeepDays):yyyy-MM-dd}.log") < 0)
+                    if (string.CompareOrdinal(Path.GetFileName(old), $"server-{Now().AddDays(-KeepDays):yyyy-MM-dd}.log") < 0)
                         try { File.Delete(old); } catch (IOException) { }
             }
             _file.WriteLine(line);
@@ -144,7 +175,7 @@ public sealed class LogBufferProvider(LogBuffer buffer) : ILoggerProvider
                 LogLevel.Trace => "TRACE", LogLevel.Debug => "DEBUG", LogLevel.Information => "INFO",
                 LogLevel.Warning => "WARN", LogLevel.Error => "ERROR", _ => "CRIT",
             };
-            var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} {level} {_short}: {formatter(state, exception)}";
+            var line = $"{buffer.Now():yyyy-MM-dd HH:mm:ss.fff zzz} {level} {_short}: {formatter(state, exception)}";
             if (exception is not null) line += Environment.NewLine + "    " + exception.ToString().Replace("\n", "\n    ");
             buffer.Add(line);
         }

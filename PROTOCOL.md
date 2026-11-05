@@ -141,7 +141,7 @@ Device-local rules (implemented in `Client.Service`, mirrored in the simulator):
   clock), then wait; never re-resolve wall clocks mid-wait.
 - **Claim before playback:** durably write `{occurrence_id, claimed_at}` before starting
   audio; duplicate triggers (reconnect storm, second session) find the claim and do nothing.
-- **Missed-bell grace: 2 s default** (configurable 0–60 s): if due-time passed > grace,
+- **Missed-bell grace: 6 s default** (2 s before 0.9.8; configurable 0–60 s): if due-time passed > grace,
   record receipt `missed` (state `expired`) and do **not** replay late — after a long sleep,
   reboot, or outage the whole past horizon is skipped with one `expired` batch log.
 - **Live-speech priority:** while a live announcement is active for this device, a due bell

@@ -69,6 +69,7 @@ builder.Services.AddHostedService<RetentionWorkerHost>();
 
 var app = builder.Build();
 logBuffer.EnableFiles(Path.Combine(app.Services.GetRequiredService<ServerConfig>().DataDir, "logs"));
+logBuffer.SchoolTimeZone = () => app.Services.GetRequiredService<PublishService>().SchoolTz;
 
 // MediaRouter callbacks are assigned (not constructor-injected) so the media path never depends on
 // the announcement service and the dependency graph stays acyclic.

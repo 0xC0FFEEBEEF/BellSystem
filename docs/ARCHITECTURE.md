@@ -21,7 +21,7 @@ Protocol: `PROTOCOL.md` (v1, plus additive v1.1 messages). Status and evidence: 
   and per-app session volume capture/override/restore and crash recovery. Exactly one renderer per
   machine: the console session's companion if present, otherwise the service.
 - **Client.Core** (net10.0): everything testable without Windows APIs — reconnect backoff (full
-  jitter, 30 s cap), bell scheduler (monotonic due times, 2 s missed-bell grace, expired batch,
+  jitter, 30 s cap), bell scheduler (monotonic due times, 6 s missed-bell grace, expired batch,
   live-speech suppression), claim-before-play ledger, receipt queue, manifest verification,
   atomic sound cache, jitter buffer, keep-awake policy store with absolute offline expiry.
 - **Web UI** (`web/`, React + TypeScript, built into `web/dist` and served by the server): Home

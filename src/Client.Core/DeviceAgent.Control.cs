@@ -13,7 +13,16 @@ public sealed partial class DeviceAgent
         {
             var env = await session.ReceiveEnvelopeAsync(ct);
             if (env is null) return; // socket closed by server
-            await DispatchAsync(session, env, ct);
+            try { await DispatchAsync(session, env, ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (System.Net.WebSockets.WebSocketException) { throw; }   // the connection itself failed
+            catch (Exception e)
+            {
+                // One message we cannot apply must not end the connection: the server replays it on
+                // reconnect and the computer would loop forever (seen in the field). It stays
+                // unprocessed; manifests are retried below and re-sent by the server.
+                _log.LogError(e, "could not handle {Type} ({EventId}); the connection stays up", env.Type, env.EventId);
+            }
         }
     }
 
@@ -64,6 +73,47 @@ public sealed partial class DeviceAgent
             return true;
         }
 
+        return await ApplyManifestAsync(session, manifest, ct, retryOnCacheFailure: true);
+    }
+
+    private readonly SemaphoreSlim _manifestGate = new(1, 1);
+    private int _manifestRetryRunning;
+
+    private async Task<bool> ApplyManifestAsync(ControlSession session, ScheduleManifestPayload manifest,
+        CancellationToken ct, bool retryOnCacheFailure)
+    {
+        await _manifestGate.WaitAsync(ct);
+        try { return await ApplyManifestLockedAsync(session, manifest, ct, retryOnCacheFailure); }
+        finally { _manifestGate.Release(); }
+    }
+
+    /// A manifest whose sounds could not be put in place (a locked file, the server briefly
+    /// unreachable) is tried again every 30 s while this connection lasts, instead of waiting
+    /// for a reconnect.
+    private void RetryManifestLater(ControlSession session, ScheduleManifestPayload manifest, CancellationToken ct)
+    {
+        if (Interlocked.Exchange(ref _manifestRetryRunning, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                for (int attempt = 1; attempt <= 10 && !ct.IsCancellationRequested; attempt++)
+                {
+                    await _time.DelayAsync(TimeSpan.FromSeconds(30), ct);
+                    if (Manifests.LocalRevision >= manifest.Revision) return;
+                    _log.LogInformation("retrying schedule revision {Revision} ({Attempt} of 10)", manifest.Revision, attempt);
+                    if (await ApplyManifestAsync(session, manifest, ct, retryOnCacheFailure: false)) return;
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { _log.LogWarning("schedule retry failed: {Error}", e.Message); }
+            finally { Interlocked.Exchange(ref _manifestRetryRunning, 0); }
+        }, CancellationToken.None);
+    }
+
+    private async Task<bool> ApplyManifestLockedAsync(ControlSession session, ScheduleManifestPayload manifest,
+        CancellationToken ct, bool retryOnCacheFailure)
+    {
         var verdict = Manifests.VerifyCandidate(manifest, _verifyKey);
         if (!verdict.Accepted)
         {
@@ -80,8 +130,9 @@ public sealed partial class DeviceAgent
         catch (OperationCanceledException) { throw; }
         if (!cacheResult.Success)
         {
-            _log.LogWarning("manifest revision {Revision}: sound cache refresh failed ({Failure}) — not accepted yet, will re-deliver",
+            _log.LogWarning("manifest revision {Revision}: sound cache refresh failed ({Failure}) — not accepted yet, will retry",
                 manifest.Revision, cacheResult.Failure);
+            if (retryOnCacheFailure) RetryManifestLater(session, manifest, ct);
             return false; // cursor must NOT advance: server re-delivers on next resync
         }
 

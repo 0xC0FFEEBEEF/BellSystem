@@ -184,8 +184,10 @@ public sealed partial class DeviceAgent
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
-        // Resync header: durable cursor + cache revision + queued receipts (≤500).
-        var queued = Receipts.DequeueBatch();
+        // Resync header: durable cursor + cache revision + the oldest queued receipts. The server
+        // reads at most 32 KB from a device, so the header carries 100 (~15 KB); the rest follow as
+        // ordinary receipts. (A computer offline for days used to queue enough to never reconnect.)
+        var queued = Receipts.DequeueBatch(ResyncHeaderReceipts);
         try
         {
             var resync = queued
@@ -353,14 +355,8 @@ public sealed partial class DeviceAgent
                 var req = new PipeBellPlay(decision.OccurrenceId, occ.BellName, wav, occ.DurationS,
                     _cfg.BellFadeMs, occ.VolumePolicy,
                     occ.VolumePolicy == "announcement" ? AnnouncementVolume : 0);
-                BellPlayOutcome outcome;
-                try { outcome = await _bellPlayer.PlayAsync(req, ct); }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception e)
-                {
-                    _log.LogWarning(e, "bell playback instruction failed for {OccurrenceId}", decision.OccurrenceId);
-                    outcome = new(false, "renderer");
-                }
+                var outcome = await PlayWithRetryAsync(req,
+                    Math.Min(occ.StartsAt + BellRetryWindowMs, occ.ExpiresAt), ct);
                 var state = outcome.StateOverride ?? (outcome.Played ? ReceiptState.Completed : ReceiptState.Failed);
                 Ledger.MarkTerminal(decision.OccurrenceId, state);
                 QueueReceipt(new ReceiptPayload(decision.OccurrenceId, state, Clock.NowMs(), outcome.Reason));
@@ -370,6 +366,39 @@ public sealed partial class DeviceAgent
                 return (state, outcome.Reason);
         }
         return (ReceiptState.Unknown, null);
+    }
+
+    /// A bell that did not play for a passing reason (speaker briefly gone, tray app restarting,
+    /// playback error) is tried again, while it is still close to its time. Missing or unreadable
+    /// sounds are not retried: another try cannot fix them.
+    public const int ResyncHeaderReceipts = 100;
+    internal const long BellRetryWindowMs = 20_000;
+    internal static readonly int[] BellRetryDelaysMs = [1_000, 2_500];
+    internal static bool RetryableBellFailure(string? reason) =>
+        reason is "renderer" or "renderer_timeout" or "renderer_lost" or "output_missing" or "no_renderer";
+
+    private async Task<BellPlayOutcome> PlayWithRetryAsync(PipeBellPlay req, long retryUntilMs, CancellationToken ct)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            BellPlayOutcome outcome;
+            try { outcome = await _bellPlayer.PlayAsync(req, ct); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception e)
+            {
+                _log.LogWarning(e, "bell playback instruction failed for {OccurrenceId}", req.OccurrenceId);
+                outcome = new(false, "renderer");
+            }
+            if (outcome.Played)
+                return attempt == 0 || outcome.Reason is not null ? outcome : outcome with { Reason = $"played_on_retry_{attempt}" };
+            if (!RetryableBellFailure(outcome.Reason) || attempt >= BellRetryDelaysMs.Length) return outcome;
+            var delay = BellRetryDelaysMs[attempt];
+            if (Clock.NowMs() + delay > retryUntilMs) return outcome;
+            _log.LogWarning("bell '{Bell}' ({OccurrenceId}) did not play ({Reason}); trying again in {Delay} ms ({Attempt} of {Max})",
+                req.BellName, req.OccurrenceId, outcome.Reason, delay, attempt + 1, BellRetryDelaysMs.Length);
+            await _time.DelayAsync(TimeSpan.FromMilliseconds(delay), ct);
+            if (LiveAnnouncementActive) return new(false, "live_announcement", ReceiptState.Suppressed);
+        }
     }
 
     public void QueueReceipt(ReceiptPayload receipt)

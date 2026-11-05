@@ -19,7 +19,7 @@ Current as of release 0.9.7. `HANDOFF.md` §5 lists what was verified and how.
    the claim and the speaker. Those show as `started` or `unknown`, never `completed`. Delivery is
    at most once per bell.
 6. **Missed bells are never replayed.** A computer that was off, asleep or offline when a bell was due
-   records it as `expired` rather than ringing late; the grace is 2 seconds. Admin → Log names each
+   records it as `expired` rather than ringing late; the grace is 6 seconds (2 before 0.9.8). Admin → Log names each
    computer and bell that expired. (Up to 0.9.6 a client bug also expired every bell that came a few
    minutes after one that played; fixed in the 0.9.7 client.)
 7. **Slow networks.** A computer that cannot keep up with live audio builds a backlog in TCP and proxy

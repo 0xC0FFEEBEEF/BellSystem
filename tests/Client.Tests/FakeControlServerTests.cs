@@ -30,7 +30,8 @@ public class FakeControlServerTests
         }
     }
 
-    private static Harness StartAgentAsync(FakeControlServer server, Action<ClaimLedger>? seedLedger = null)
+    private static Harness StartAgentAsync(FakeControlServer server, Action<ClaimLedger>? seedLedger = null,
+        Action<string>? seedDir = null, Action<FakeKeepAwake>? setupKeepAwake = null)
     {
         // Use the fake server's enrolled device identity: enrollment itself is the installer's
         // job (POST /api/enroll needs a scoped token), so tests seed the same credentials
@@ -39,12 +40,14 @@ public class FakeControlServerTests
         var secret = server.DeviceSecretHex;
         var dir = TestDirs.Create("agent");
         if (seedLedger is not null) seedLedger(new ClaimLedger(dir));
+        seedDir?.Invoke(dir);
 
         var cfg = AgentKit.MakeConfig(server.Url, dir, deviceId, secret);
         var log = new CapturingLogger();
         var player = new FakeBellPlayer();
         var pipeline = new FakePipeline();
         var keepAwake = new FakeKeepAwake();
+        setupKeepAwake?.Invoke(keepAwake);
         var agent = new DeviceAgent(cfg, TimeProvider.System, new HttpClient(), log,
             player, pipeline, new FakeRenderer(), new FakeIdentity(), keepAwake);
         var cts = new CancellationTokenSource();
@@ -409,5 +412,79 @@ public class FakeControlServerTests
                    AgentKit.CountReceipts(server.Received, "pass-ends", ReceiptState.Expired) == 1), 20_000));
         Assert.Equal(0, AgentKit.CountReceipts(server.Received, "pass-ends", ReceiptState.Expired));
         Assert.Equal(1, AgentKit.CountReceipts(server.Received, "pass-ends", ReceiptState.Completed));
+    }
+
+    [Fact]
+    public async Task A_Bell_That_Fails_For_A_Passing_Reason_Is_Retried_And_Plays()
+    {
+        var deviceId = Guid.NewGuid().ToString();
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        await using var server = await FakeControlServer.StartAsync(deviceId, secret);
+        var bell = System.Text.Encoding.UTF8.GetBytes("BELL");
+        server.Sounds["std-bell"] = bell;
+        var now = NowMs();
+        server.QueueEvent(Protocol.TScheduleManifest, PayloadSerializer.Node(ManifestTestKit.BuildManifest(11, now, [
+            ManifestTestKit.Bell("flaky", now + 1_500, now + 7 * 86_400_000),
+            ManifestTestKit.Bell("broken-sound", now + 9_000, now + 7 * 86_400_000),
+        ], soundSha: Sha(bell))));
+
+        await using var h = StartAgentAsync(server);
+        lock (h.Player.Script)
+        {
+            h.Player.Script.Enqueue(new BellPlayOutcome(false, "renderer_lost"));     // tray app restarting
+            h.Player.Script.Enqueue(new BellPlayOutcome(true, null));
+            h.Player.Script.Enqueue(new BellPlayOutcome(false, "sound_unreadable"));  // a retry cannot fix this
+        }
+        Assert.True(await server.WaitUntilAsync(
+            () => AgentKit.CountReceipts(server.Received, "flaky", ReceiptState.Completed) == 1 &&
+                  AgentKit.CountReceipts(server.Received, "broken-sound", ReceiptState.Failed) == 1, 20_000));
+        lock (h.Player.Requests)
+        {
+            Assert.Equal(2, h.Player.Requests.Count(r => r.OccurrenceId == "flaky"));
+            Assert.Equal(1, h.Player.Requests.Count(r => r.OccurrenceId == "broken-sound"));
+        }
+        Assert.Contains(server.Received, e => e.Type == Protocol.TReceipt && AgentKit.ReceiptOf(e).OccurrenceOrAnnouncementId == "flaky"
+            && AgentKit.ReceiptOf(e).ErrorCode == "played_on_retry_1");
+    }
+
+    [Fact]
+    public async Task A_Message_The_Computer_Cannot_Handle_Does_Not_Drop_The_Connection()
+    {
+        // field: one computer reconnected every two seconds, replaying the same backlog each time
+        var deviceId = Guid.NewGuid().ToString();
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        await using var server = await FakeControlServer.StartAsync(deviceId, secret);
+        var bell = System.Text.Encoding.UTF8.GetBytes("BELL");
+        server.Sounds["std-bell"] = bell;
+        var now = NowMs();
+        server.QueueEvent(Protocol.TKeepAwakeSet, PayloadSerializer.Node(new KeepAwakeSetPayload("ka-1", now + 3_600_000, false)));
+        server.QueueEvent(Protocol.TScheduleManifest, PayloadSerializer.Node(
+            ManifestTestKit.BuildManifest(12, now, [ManifestTestKit.Bell("later", now + 600_000, now + 7 * 86_400_000)], soundSha: Sha(bell))));
+
+        await using var h = StartAgentAsync(server, setupKeepAwake: k => k.Throw = true);
+        var ack = await server.WaitForAsync(Protocol.TScheduleAck);
+        Assert.Equal(12, PayloadSerializer.ToPayload<ScheduleAckPayload>(ack)!.Revision);
+        await Task.Delay(1_000);
+        Assert.Equal(1, server.ConnectionCount);
+    }
+
+    [Fact]
+    public async Task A_Computer_With_Hundreds_Of_Queued_Results_Still_Reconnects_And_Sends_Them_All()
+    {
+        var deviceId = Guid.NewGuid().ToString();
+        var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+        await using var server = await FakeControlServer.StartAsync(deviceId, secret);
+        var now = NowMs();
+        await using var h = StartAgentAsync(server, seedDir: dir =>
+        {
+            var q = new ReceiptQueue(dir);
+            for (int i = 0; i < 300; i++)   // e.g. days of bells recorded while offline
+                q.Enqueue(new ReceiptPayload($"{i:D4}-{new string('e', 60)}", ReceiptState.Expired, now - i * 60_000, "missed_bell"));
+        });
+        Assert.True(await server.WaitUntilAsync(() =>
+            server.Resyncs.Count >= 1 &&
+            server.Resyncs[0].Receipts.Count + server.Received.Count(e => e.Type == Protocol.TReceipt) >= 300, 20_000));
+        Assert.Equal(DeviceAgent.ResyncHeaderReceipts, server.Resyncs[0].Receipts.Count);
+        Assert.Equal(1, server.ConnectionCount);
     }
 }

@@ -39,11 +39,11 @@ public static class LogEndpoints
         {
             var (u, e) = Admin(ctx);
             if (u is null) return e!;
-            var header = $"SchoolBell {Util.ServerVersion} server log, downloaded {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz} " +
+            var header = $"SchoolBell {Util.ServerVersion} server log, downloaded {logs.Now():yyyy-MM-dd HH:mm:ss zzz} " +
                          $"by {u.Username} (verbose {(logs.Verbose ? "on" : "off")}, last {Math.Clamp(days, 1, LogBuffer.KeepDays)} day(s))" +
                          Environment.NewLine + Environment.NewLine;
             var bytes = System.Text.Encoding.UTF8.GetBytes(header + logs.Export(days));
-            return Results.File(bytes, "text/plain; charset=utf-8", $"schoolbell-log-{DateTime.Now:yyyy-MM-dd-HHmm}.txt");
+            return Results.File(bytes, "text/plain; charset=utf-8", $"schoolbell-log-{logs.Now():yyyy-MM-dd-HHmm}.txt");
         });
     }
 }

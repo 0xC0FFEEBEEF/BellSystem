@@ -58,7 +58,7 @@ public sealed partial class DeviceAgent
                 QueueReceipt(new ReceiptPayload(ring.RingId, ReceiptState.Started, Clock.NowMs(), null));
                 var req = new PipeBellPlay(ring.RingId, ring.BellName, wav, ring.DurationS, _cfg.BellFadeMs,
                     ring.VolumePolicy, ring.VolumePolicy == "announcement" ? AnnouncementVolume : 0);
-                var outcome = await _bellPlayer.PlayAsync(req, ct);
+                var outcome = await PlayWithRetryAsync(req, Math.Min(Clock.NowMs() + BellRetryWindowMs, ring.ExpiresAt), ct);
                 state = outcome.StateOverride ?? (outcome.Played ? ReceiptState.Completed : ReceiptState.Failed);
                 error = outcome.Reason;
             }

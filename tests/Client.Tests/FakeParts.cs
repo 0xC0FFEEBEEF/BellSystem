@@ -9,10 +9,13 @@ public sealed class FakeBellPlayer : IBellPlayer
     public bool Played { get; set; } = true;
     /// How long a bell takes to play (a real 3-second bell plus fade); 0 = instant.
     public int PlayMs { get; set; }
+    /// Outcomes to return first (e.g. one failure before playing), then the default.
+    public Queue<BellPlayOutcome> Script { get; } = new();
     public async Task<BellPlayOutcome> PlayAsync(PipeBellPlay play, CancellationToken ct)
     {
         lock (Requests) Requests.Add(play);
         if (PlayMs > 0) await Task.Delay(PlayMs, ct);
+        lock (Script) if (Script.TryDequeue(out var scripted)) return scripted;
         return new BellPlayOutcome(Played, Played ? null : "renderer");
     }
 }
@@ -59,8 +62,10 @@ public sealed class FakeKeepAwake : IKeepAwakeApplier
     public List<bool> Applies { get; } = [];
     public int Clears { get; private set; }
     public bool Applied { get; private set; }
+    public bool Throw { get; set; }
     public Task<bool> RequestApplyAsync(bool displayOff, CancellationToken ct)
     {
+        if (Throw) throw new InvalidOperationException("keep-awake thread unavailable (test)");
         lock (Applies) Applies.Add(displayOff);
         Applied = true;
         return Task.FromResult(true);

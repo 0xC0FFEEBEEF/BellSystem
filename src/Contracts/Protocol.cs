@@ -21,7 +21,7 @@ public static class Protocol
     public const int StaleAfterSeconds = 30;
     public const int ReconnectCapSeconds = 30;
 
-    public const int MissedBellGraceSecondsDefault = 2;
+    public const int MissedBellGraceSecondsDefault = 6;
     public const int ManifestHorizonDays = 7;
     public const int TalkLeaseMaxSecondsDefault = 300;
     public const int JitterBufferStartMs = 300;

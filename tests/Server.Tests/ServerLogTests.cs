@@ -58,4 +58,28 @@ public class ServerLogTests
         var connected = await app.Json(await app.Get("/api/admin/logs?lines=200&q=connected"));
         Assert.Contains(connected.GetProperty("lines").EnumerateArray(), l => l.GetString()!.Contains("(RHS-17151) connected"));
     }
+
+    [Fact]
+    public async Task Log_times_are_in_the_school_timezone_and_a_dropped_connection_is_not_an_error()
+    {
+        using var app = new TestApp(tz: "Asia/Tokyo");                 // +09:00, unlike the server clock
+        var dev = await LiveTest.EnrollAsync(app, "RHS-DROP");
+        await Task.Delay(2_500);                                          // past the startup retry
+        var client = await ControlClient.ConnectAsync(app, dev);
+        client.Socket.Abort();                                            // gone without a close handshake
+
+        List<string> lines = [];
+        for (int i = 0; i < 50; i++)
+        {
+            lines = (await app.Json(await app.Get("/api/admin/logs?lines=300"))).GetProperty("lines")
+                .EnumerateArray().Select(l => l.GetString()!).ToList();
+            if (lines.Any(l => l.Contains("(RHS-DROP) disconnected"))) break;
+            await Task.Delay(100);
+        }
+        var connected = Assert.Single(lines, l => l.Contains("(RHS-DROP) connected"));
+        Assert.Contains(" +09:00 ", connected);
+        Assert.Contains(lines, l => l.Contains("(RHS-DROP) disconnected"));
+        var errors = lines.Where(l => l.Contains(" ERROR ") || l.Contains("unhandled exception", StringComparison.OrdinalIgnoreCase)).ToList();
+        Assert.True(errors.Count == 0, string.Join("\n", errors));
+    }
 }

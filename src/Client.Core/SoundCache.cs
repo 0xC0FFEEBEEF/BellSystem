@@ -38,10 +38,16 @@ public sealed class SoundCache
             lock (_gate)
             {
                 var stage = System.IO.Path.Combine(_root, "stage-" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(stage);
                 try
                 {
+                    Directory.CreateDirectory(stage);
                     return Run(http, sounds, stage, ct);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    // Windows: antivirus or another process holding a sound file. Never let it end the
+                    // connection: report it; the previous cache stays in use and the manifest is retried.
+                    return new(false, $"cache_io: {e.Message}", 0, 0, CurrentDir);
                 }
                 finally
                 {
@@ -62,12 +68,12 @@ public sealed class SoundCache
 
             // Reuse an already-cached copy when its hash still matches the manifest.
             var existing = System.IO.Path.Combine(CurrentDir, name);
-            if (File.Exists(existing) && Sha256Hex(existing) == s.Sha256.ToLowerInvariant())
+            if (File.Exists(existing) && TrySha256Hex(existing) == s.Sha256.ToLowerInvariant()
+                && Retry(() => File.Copy(existing, dest, overwrite: true)))
             {
-                File.Copy(existing, dest);
                 reused++;
                 continue;
-            }
+            }   // a copy we cannot read is simply downloaded again
 
             byte[] bytes;
             try
@@ -90,19 +96,17 @@ public sealed class SoundCache
             downloaded++;
         }
 
-        // Atomic swap: current → old, stage → current, then drop old.
+        // Atomic swap: current → old, stage → current, then drop old. Each move is retried briefly:
+        // on Windows a scanner that just opened a new file blocks the rename for a moment.
         var old = System.IO.Path.Combine(_root, "old-" + Guid.NewGuid().ToString("N"));
         TryDeleteStaleAuxDirs(except: stage);
-        if (Directory.Exists(CurrentDir)) Directory.Move(CurrentDir, old);
-        try
-        {
-            Directory.Move(stage, CurrentDir);
-        }
-        catch
+        if (Directory.Exists(CurrentDir) && !Retry(() => Directory.Move(CurrentDir, old)))
+            return new(false, "cache_locked: the sound folder is in use and could not be replaced", 0, 0, CurrentDir);
+        if (!Retry(() => Directory.Move(stage, CurrentDir)))
         {
             if (Directory.Exists(old) && !Directory.Exists(CurrentDir))
-                Directory.Move(old, CurrentDir); // roll back so the old cache survives
-            throw;
+                Retry(() => Directory.Move(old, CurrentDir)); // roll back so the old cache survives
+            return new(false, "cache_locked: the new sounds could not be put in place", 0, 0, CurrentDir);
         }
         TryDeleteTree(old);
         return new(true, null, downloaded, reused, CurrentDir);
@@ -154,7 +158,27 @@ public sealed class SoundCache
     private static void TryDeleteTree(string dir)
     {
         try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
-        catch (IOException) { }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }   // left for the next swap
+    }
+
+    /// File operations Windows can refuse for a moment (scanner, indexer): a few short retries.
+    private static bool Retry(Action op, int attempts = 6, int delayMs = 250)
+    {
+        for (int i = 1; ; i++)
+        {
+            try { op(); return true; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                if (i >= attempts) return false;
+                Thread.Sleep(delayMs);
+            }
+        }
+    }
+
+    private static string? TrySha256Hex(string file)
+    {
+        try { return Sha256Hex(file); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
     private static string Sha256Hex(string file)

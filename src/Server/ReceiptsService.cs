@@ -71,7 +71,7 @@ public sealed class ReceiptsService
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT o.occurrence_id, o.bell_name, o.kind, o.template_name, o.local_date, o.local_hm,
-                   o.starts_at, o.volume_policy, o.sound_id
+                   o.starts_at, o.volume_policy, o.sound_id, o.target_key
             FROM occurrences o
             JOIN (SELECT occurrence_id, MAX(revision) AS mr FROM occurrences GROUP BY occurrence_id) m
               ON m.occurrence_id = o.occurrence_id AND m.mr = o.revision
@@ -83,10 +83,11 @@ public sealed class ReceiptsService
         cmd.Parameters.AddWithValue("$past", pastOnly ? 1 : 0);
         cmd.Parameters.AddWithValue("$now", nowMs);
         cmd.Parameters.AddWithValue("$latest", latest);
-        var bells = new List<(string Id, string BellName, string Kind, string Template, string Date, string Hm, long StartsAt)>();
+        var bells = new List<(string Id, string BellName, string Kind, string Template, string Date, string Hm, long StartsAt, string TargetKey)>();
         using (var r = cmd.ExecuteReader())
             while (r.Read())
-                bells.Add((r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5), r.GetInt64(6)));
+                bells.Add((r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5), r.GetInt64(6),
+                    r.IsDBNull(9) ? "all" : r.GetString(9)));
 
         if (bells.Count == 0) return [];
 
@@ -114,13 +115,55 @@ public sealed class ReceiptsService
                     r.GetInt64(6), r.IsDBNull(7) ? null : r.GetString(7)));
             }
 
+        // History: which computers should have rung it and never reported anything (off, asleep,
+        // offline all day). Audience = enrolled before the bell, not revoked, in the bell's target.
+        var audiences = new Dictionary<string, List<(string Id, string Label, long FirstSeen)>>();
+        List<string>? NoReport((string Id, string BellName, string Kind, string Template, string Date, string Hm, long StartsAt, string TargetKey) b)
+        {
+            if (!pastOnly) return null;
+            if (!audiences.TryGetValue(b.TargetKey, out var audience))
+                audiences[b.TargetKey] = audience = Audience(conn, b.TargetKey);
+            var reported = deliveries.TryGetValue(b.Id, out var d) ? d.Select(x => x.DeviceId).ToHashSet() : [];
+            return audience.Where(a => a.FirstSeen <= b.StartsAt && !reported.Contains(a.Id)).Select(a => a.Label).Order().ToList();
+        }
         return bells.Select(b => new RecentBell(b.Id, b.BellName, b.Kind, b.Template, b.Date, b.Hm,
             b.StartsAt, b.StartsAt <= nowMs, deliveries.TryGetValue(b.Id, out var d) ? d : [],
-            deliveries.ContainsKey(b.Id))).ToList();
+            deliveries.ContainsKey(b.Id), NoReport(b))).ToList();
+    }
+
+    private static List<(string Id, string Label, long FirstSeen)> Audience(Microsoft.Data.Sqlite.SqliteConnection conn, string targetKey)
+    {
+        string where; var ps = new List<(string, object?)>();
+        if (targetKey.StartsWith("groups:", StringComparison.Ordinal))
+        {
+            var ids = targetKey["groups:".Length..].Split(',', StringSplitOptions.RemoveEmptyEntries);
+            where = $"d.device_id IN (SELECT device_id FROM group_members WHERE group_id IN ({string.Join(",", ids.Select((_, i) => "$g" + i))}))";
+            ps.AddRange(ids.Select((g, i) => ("$g" + i, (object?)long.Parse(g))));
+        }
+        else if (targetKey.StartsWith("devices:", StringComparison.Ordinal))
+        {
+            var ids = targetKey["devices:".Length..].Split(',', StringSplitOptions.RemoveEmptyEntries);
+            where = $"d.device_id IN ({string.Join(",", ids.Select((_, i) => "$d" + i))})";
+            ps.AddRange(ids.Select((x, i) => ("$d" + i, (object?)x)));
+        }
+        else if (targetKey == "all") where = "1 = 1";
+        else return [];
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT d.device_id, CASE WHEN d.active_user IS NOT NULL THEN d.active_user || ' (' || COALESCE(d.computer_name, d.name) || ')'
+                   ELSE 'No signed-in user (' || COALESCE(d.computer_name, d.name) || ')' END, d.first_seen
+            FROM devices d WHERE d.revoked = 0 AND {where}
+            """;
+        foreach (var (n, v) in ps) cmd.Parameters.AddWithValue(n, v);
+        var list = new List<(string, string, long)>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add((r.GetString(0), r.GetString(1), r.GetInt64(2)));
+        return list;
     }
 }
 
 public sealed record DeliveryResult(string DeviceId, string Label, string State, long At, string? ErrorCode);
 
 public sealed record RecentBell(string OccurrenceId, string BellName, string Kind, string ScheduleTemplate,
-    string LocalDate, string LocalHm, long StartsAt, bool IsPast, List<DeliveryResult> Delivery, bool HasReceipts);
+    string LocalDate, string LocalHm, long StartsAt, bool IsPast, List<DeliveryResult> Delivery, bool HasReceipts,
+    List<string>? NoReport = null);

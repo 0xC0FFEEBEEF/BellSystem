@@ -14,8 +14,9 @@ public sealed class ClientConfig
     public string DataDir { get; set; } = "";
     public string ClientVersion { get; set; } = "1.0.0-pilot";
 
-    /// Missed-bell grace seconds (PROTOCOL §6). Default 2, configurable 0–60.
-    public int MissedBellGraceSeconds { get; set; } = 2;
+    /// Missed-bell grace seconds (PROTOCOL §6): how late a bell may still ring. Default 6 (was 2
+    /// until 0.9.8, which proved too tight on real classroom computers), configurable 0–60.
+    public int MissedBellGraceSeconds { get; set; } = 6;
     public int ReconnectCapSeconds { get; set; } = 30;
     public int StatusReportSeconds { get; set; } = 60;
     public int AnnouncementVolume { get; set; } = 80;

@@ -405,6 +405,9 @@ internal static class WebSocketHandler
             WebSocketReceiveResult res;
             try { res = await ws.ReceiveAsync(buffer, ct); }
             catch (OperationCanceledException) { throw new Timeout(); }
+            // the computer went away without a close handshake (restart, update, network): an
+            // ordinary disconnect, not a server error
+            catch (Exception e) when (e is WebSocketException or IOException or ObjectDisposedException) { throw new Timeout(); }
             if (res.MessageType == WebSocketMessageType.Close) throw new Timeout();
             if (res.MessageType == WebSocketMessageType.Binary) throw new TooBig();
             sb.Append(System.Text.Encoding.UTF8.GetString(buffer, 0, res.Count));
