@@ -247,6 +247,9 @@ begin
   RunHidden(ExpandConstant('{sys}\sc.exe'), 'stop {#ServiceName}');
   PowerShell('$s = Get-Service {#ServiceName} -ErrorAction SilentlyContinue; if ($s) { $s.WaitForStatus(''Stopped'', ''00:00:30'') }');
   RunHidden(ExpandConstant('{sys}\taskkill.exe'), '/F /IM SchoolBellCompanion.exe');
+  { taskkill returns before the processes are gone; a file still held makes silent setup abort
+    (exit code 5, seen in the field). Wait up to 30 s for both to exit. }
+  PowerShell('$d = (Get-Date).AddSeconds(30); while ((Get-Date) -lt $d -and @(Get-Process -Name SchoolBellCompanion, SchoolBellService -ErrorAction SilentlyContinue).Count -gt 0) { Get-Process -Name SchoolBellCompanion -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 }');
   Result := '';
 end;
 
