@@ -281,7 +281,7 @@ begin
 end;
 
 function Enroll(): Boolean;
-var Args: String; RC: Integer;
+var Args: String; RC: Integer; Details: AnsiString;
 begin
   Result := True;
   if Enrolled() then begin Log('already enrolled; identity kept'); Exit; end;
@@ -291,6 +291,8 @@ begin
   if RC <> 0 then
   begin
     Log('enrollment failed with exit code ' + IntToStr(RC) + ' (2 usage, 3 server unreachable or TLS untrusted, 4 rejected)');
+    { the tool's own explanation (also kept in ProgramData\SchoolBell\logs\enroll.log) }
+    if LoadStringFromFile(DataDir() + '\logs\enroll.log', Details) then Log('enroll.log: ' + String(Details));
     Result := False;
   end;
 end;

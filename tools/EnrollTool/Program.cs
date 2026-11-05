@@ -25,10 +25,26 @@ for (int i = 0; i < args.Length; i++)
 }
 if (outPath == "" || (tokenFile == "" && token == "")) return 2;
 
+// Every outcome is also appended to <config folder>\logs\enroll.log (the installer copies it into
+// its setup log), so a failed PDQ deployment says why on the computer itself. Never secrets.
+void Note(string message)
+{
+    Console.Error.WriteLine(message);
+    try
+    {
+        var dir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outPath)) ?? ".", "logs");
+        Directory.CreateDirectory(dir);
+        File.AppendAllText(Path.Combine(dir, "enroll.log"),
+            $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz} [{deviceName}] {message}{Environment.NewLine}");
+    }
+    catch (Exception) { /* logging must never stop enrollment */ }
+}
+static string Inner(Exception e) => e.InnerException is null ? e.Message : $"{e.Message} -> {Inner(e.InnerException)}";
+
 // Enrollment material: a bare token, or schoolbell-enroll.json from /admin
 // ({"v":1,"server":"https://...","token":"...","expires_at":...}). Never printed.
 try { token = token != "" ? token.Trim() : File.ReadAllText(tokenFile).Trim(); }
-catch (Exception e) { Console.Error.WriteLine($"cannot read token file: {e.Message}"); return 2; }
+catch (Exception e) { Note($"cannot read token file: {e.Message}"); return 2; }
 if (token.StartsWith('{'))
 {
     try
@@ -37,27 +53,27 @@ if (token.StartsWith('{'))
         var root = doc.RootElement;
         if (server == "" && root.TryGetProperty("server", out var sv)) server = sv.GetString() ?? "";
         token = root.TryGetProperty("token", out var tk) ? tk.GetString() ?? "" : "";
+        // The server decides: an administrator may have extended this enrollment after it was
+        // downloaded (Admin > Enrollment tokens), so an old expiry date here is only a note.
         if (root.TryGetProperty("expires_at", out var ex) && ex.TryGetInt64(out var exp) &&
             exp < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
-        {
-            Console.Error.WriteLine("enrollment file has expired; create a new one in /admin"); return 4;
-        }
+            Note("note: this enrollment file's original expiry has passed; asking the server anyway");
     }
-    catch (JsonException) { Console.Error.WriteLine("enrollment file is not valid JSON"); return 2; }
+    catch (JsonException) { Note("enrollment file is not valid JSON"); return 2; }
 }
-if (server == "" || token == "") { Console.Error.WriteLine("server and token are required"); return 2; }
+if (server == "" || token == "") { Note("server and token are required"); return 2; }
 // --server accepts a hostname, an IP, or an https:// URL
 if (!server.Contains("://")) server = "https://" + server;
 
 if (!Uri.TryCreate(server, UriKind.Absolute, out var uu) || (uu.Scheme != "https" && uu.Scheme != "http"))
 {
-    Console.Error.WriteLine("invalid server URL (expected https://host)"); return 2;
+    Note("invalid server URL (expected https://host)"); return 2;
 }
 // TLS is validated normally against the OS trust store (no bypass anywhere);
 // plain http is only permitted for loopback development.
 if (uu.Scheme == "http" && uu.Host is not ("localhost" or "127.0.0.1"))
 {
-    Console.Error.WriteLine("refusing plain http to a non-loopback server: use https://"); return 2;
+    Note("refusing plain http to a non-loopback server: use https://"); return 2;
 }
 
 var opts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
@@ -77,23 +93,23 @@ try
     if (!r.IsSuccessStatusCode)
     {
         var body = await r.Content.ReadAsStringAsync();
-        Console.Error.WriteLine($"server rejected enrollment: HTTP {(int)r.StatusCode} {Truncate(body, 300)}");
+        Note($"server {server} rejected enrollment: HTTP {(int)r.StatusCode} {Truncate(body, 300)}");
         return 4;
     }
     resp = await r.Content.ReadFromJsonAsync<EnrollResp>();
 }
 catch (HttpRequestException e)
 {
-    Console.Error.WriteLine($"server unreachable (check address and CA trust): {e.Message}");
+    Note($"server {server} unreachable (check the address, port 443, a web-filter proxy, and that the school CA is trusted): {Inner(e)}");
     return 3;
 }
 catch (TaskCanceledException)
 {
-    Console.Error.WriteLine("server unreachable: timeout"); return 3;
+    Note($"server {server} unreachable: timeout (check the address, port 443 and any web-filter proxy)"); return 3;
 }
 if (resp is null || string.IsNullOrEmpty(resp.DeviceId) || string.IsNullOrEmpty(resp.DeviceSecret))
 {
-    Console.Error.WriteLine("malformed enrollment response"); return 4;
+    Note("malformed enrollment response"); return 4;
 }
 
 var dataDir = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outPath)) ?? ".", "data");
@@ -109,7 +125,7 @@ File.WriteAllText(tmpOut, JsonSerializer.Serialize(config,
     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true }));
 File.Move(tmpOut, outPath, overwrite: true);
 // Never echo secrets.
-Console.WriteLine($"enrolled device {resp.DeviceId} to {server}; config written to {outPath}");
+Note($"enrolled device {resp.DeviceId} with {server}");
 return 0;
 
 static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";

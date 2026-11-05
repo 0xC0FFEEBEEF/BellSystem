@@ -59,6 +59,7 @@ input[type="checkbox"], input[type="range"] { padding: 0; }
 .field small { color: var(--dim); }
 .check { display: inline-flex; gap: .35rem; align-items: center; margin-right: 1rem; }
 a.file-btn { display: inline-block; text-decoration: none; }
+td.nowrap { white-space: nowrap; }
 pre.code.log { max-height: 60vh; overflow-y: auto; font-size: .78rem; }
 .row { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; margin: .4rem 0; }
 fieldset { border: 1px solid var(--line); border-radius: 8px; margin: .5rem 0; }

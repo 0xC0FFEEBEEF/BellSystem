@@ -123,6 +123,15 @@ public static class EnrollmentEndpoints
             }, 201);
         });
 
+        app.MapPost("/api/admin/enrollment-tokens/{id:int}/extend", async (HttpContext ctx, int id) =>
+        {
+            if (Guard.User(ctx) is not CurrentUser u || !Guard.HasRole(u, "admin"))
+                return Err.Detail(403, "admin role required");
+            var body = await Http.ReadBody<ExtendTokenRequest>(ctx);
+            var (status, detail) = enroll.ExtendToken(u.Username, id, body?.AddUses ?? 0, body?.ExtendHours ?? 0);
+            return status == 200 ? Http.Json(enroll.ListTokens().First(t => t.Id == id)) : Err.Detail(status, detail!);
+        });
+
         app.MapDelete("/api/admin/enrollment-tokens/{id:int}", (HttpContext ctx, int id) =>
         {
             if (Guard.User(ctx) is not CurrentUser u || !Guard.HasRole(u, "admin"))
@@ -133,4 +142,5 @@ public static class EnrollmentEndpoints
     }
 
     internal sealed record CreateTokenRequest(string? Label, int? TtlHours, int? MaxUses, List<long>? GroupScope);
+    internal sealed record ExtendTokenRequest(int? AddUses, int? ExtendHours);
 }

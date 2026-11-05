@@ -69,6 +69,35 @@ public sealed class EnrollmentService
         return list;
     }
 
+    /// Admin override for an enrollment that ran out or expired: the installers already
+    /// deployed with it work again. Adds computers beyond those already used and/or moves the
+    /// expiry to `extendHours` from now. A revoked token stays revoked.
+    public (int Status, string? Detail) ExtendToken(string actor, int id, int addUses, int extendHours)
+    {
+        if (addUses < 0 || addUses > 10_000) return (400, "add_uses must be between 0 and 10000");
+        if (extendHours < 0 || extendHours > 24 * 14) return (400, "extend_hours must be between 0 and 336");
+        if (addUses == 0 && extendHours == 0) return (400, "nothing to change: give add_uses and/or extend_hours");
+        using var conn = _db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT label, max_uses, used, expires_at, revoked FROM enrollment_tokens WHERE id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        string label; int maxUses, used; long expiresAt; bool revoked;
+        using (var r = cmd.ExecuteReader())
+        {
+            if (!r.Read()) return (404, "enrollment token not found");
+            label = r.GetString(0); maxUses = r.GetInt32(1); used = r.GetInt32(2); expiresAt = r.GetInt64(3); revoked = r.GetInt32(4) == 1;
+        }
+        if (revoked) return (409, "a revoked enrollment cannot be reopened; create a new one");
+        int newMax = addUses > 0 ? Math.Max(maxUses, used) + addUses : maxUses;
+        long newExpiry = extendHours > 0 ? Math.Max(expiresAt, NowMs + extendHours * 3_600_000L) : expiresAt;
+        conn.Run("UPDATE enrollment_tokens SET max_uses = $m, expires_at = $e WHERE id = $id",
+            ("$m", newMax), ("$e", newExpiry), ("$id", id));
+        Audit.Add(_db, actor, "enrollment_token.extend", $"id={id} max_uses={maxUses}->{newMax} expires_at={expiresAt}->{newExpiry}");
+        _log.LogInformation("enrollment token '{Label}' extended by {User}: {Used} of {Max} computers used, expires {Expires}",
+            label, actor, used, newMax, DateTimeOffset.FromUnixTimeMilliseconds(newExpiry).ToString("yyyy-MM-dd HH:mm 'UTC'"));
+        return (200, null);
+    }
+
     public (int Status, string? Detail) RevokeToken(string actor, int id)
     {
         using var conn = _db.Open();
@@ -110,12 +139,21 @@ public sealed class EnrollmentService
             // Audit on the same connection/transaction (never a second writer while one is open).
             Audit.Add(conn, tx, "enroll", "enrollment_token.reject_invalid", null);
             tx.Commit();
+            _log.LogWarning("enrollment refused for computer {Name}: unknown enrollment token (deleted, or from another server)", deviceName);
             return new(403, "invalid enrollment token");
         }
 
-        if (revokedFlag == 1) return new(403, "enrollment token revoked");
-        if (expiresAt <= NowMs) return new(403, "enrollment token expired");
-        if (used >= maxUses) return new(403, "enrollment token already used");
+        string? refusal = revokedFlag == 1 ? "enrollment token revoked"
+            : expiresAt <= NowMs ? "enrollment token expired"
+            : used >= maxUses ? "enrollment token already used"
+            : null;
+        if (refusal is not null)
+        {
+            var label = conn.Scalar("SELECT label FROM enrollment_tokens WHERE id = $id", ("$id", tokenId)) as string;
+            _log.LogWarning("enrollment refused for computer {Name}: {Reason} (token '{Label}', used {Used} of {Max}, expires {Expires})",
+                deviceName, refusal, label, used, maxUses, DateTimeOffset.FromUnixTimeMilliseconds(expiresAt).ToString("yyyy-MM-dd HH:mm 'UTC'"));
+            return new(403, refusal);
+        }
 
         conn.Run(tx, "UPDATE enrollment_tokens SET used = used + 1 WHERE id = $id", ("$id", tokenId));
 

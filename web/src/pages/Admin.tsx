@@ -126,10 +126,23 @@ function Enrollment() {
           <p className="dim small">For the generic installer, supply this file with --enrollment-file and your CA certificate with --ca-file if required.</p>
         </details>
       </Card>
-      <Card title="Enrollment tokens">
+      <Card title="Enrollment tokens" className="span2">
+        <p className="dim small">If computers are refused because an enrollment ran out or expired (Admin → Log says which), allow more
+          computers or extend it: installers already deployed with it then work again. Revoked enrollments stay closed.</p>
         <table><thead><tr><th>Label</th><th>Used</th><th>Expires</th><th /></tr></thead>
-          <tbody>{(tokens.data ?? []).map((t) => <tr key={t.id}><td>{t.label}</td><td>{t.used} / {t.max_uses}</td><td>{t.revoked ? <Badge state="revoked" /> : fmtTime(t.expires_at)}</td>
-            <td>{!t.revoked && <button className="link" onClick={() => run(async () => { await del(`/api/admin/enrollment-tokens/${t.id}`); tokens.reload(); }, "Revoked")}>Revoke</button>}</td></tr>)}</tbody></table>
+          <tbody>{(tokens.data ?? []).map((t) => {
+            const expired = !t.revoked && t.expires_at <= Date.now();
+            const full = !t.revoked && t.used >= t.max_uses;
+            const extend = (add_uses: number, extend_hours: number, msg: string) =>
+              run(async () => { await post(`/api/admin/enrollment-tokens/${t.id}/extend`, { add_uses, extend_hours }); tokens.reload(); }, msg);
+            return <tr key={t.id}><td>{t.label}</td>
+              <td>{t.used} / {t.max_uses} {full && <Badge state="all_used" title="Every computer this enrollment allows has enrolled" />}</td>
+              <td>{t.revoked ? <Badge state="revoked" /> : <>{fmtTime(t.expires_at)} {expired && <Badge state="expired" />}</>}</td>
+              <td className="nowrap">{!t.revoked && <>
+                <button className="link" disabled={busy} onClick={() => extend(5, 0, "5 more computers allowed")}>+5 computers</button>{" "}
+                <button className="link" disabled={busy} onClick={() => extend(0, 24, "Extended 24 hours")}>+24 h</button>{" "}
+                <button className="link" onClick={() => run(async () => { await del(`/api/admin/enrollment-tokens/${t.id}`); tokens.reload(); }, "Revoked")}>Revoke</button></>}</td></tr>;
+          })}</tbody></table>
       </Card>
       <Card title="Revoke a computer" className="span2">
         <p className="dim small">A revoked computer can no longer connect or receive anything; re-enrolling needs a new enrollment file.</p>

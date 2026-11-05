@@ -67,7 +67,7 @@ const STATE_TEXT: Record<string, [string, string]> = {
   completed: ["Completed", "ok"], started: ["Started", "info"], ready: ["Ready", "info"], offered: ["Offered", "muted"],
   failed: ["Failed", "bad"], expired: ["Expired", "warn"], suppressed: ["Suppressed", "warn"], unknown: ["Unknown", "warn"],
   no_response: ["No response", "bad"], installed: ["Installed", "ok"], pending: ["Pending", "muted"],
-  rolled_back: ["Rolled back", "bad"], needs_client_update: ["Needs client update", "bad"], downloading: ["Downloading", "info"], installing: ["Installing", "info"],
+  rolled_back: ["Rolled back", "bad"], needs_client_update: ["Needs client update", "bad"], all_used: ["All used", "warn"], downloading: ["Downloading", "info"], installing: ["Installing", "info"],
 };
 
 export function Badge({ state, title }: { state: string; title?: string }) {
