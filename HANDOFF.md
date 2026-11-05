@@ -1,187 +1,297 @@
-# SchoolBell — handoff (updated 2026-11-04)
+# SchoolBell — handoff (2026-11-05)
 
-For the next agent or engineer. No prior conversation is needed. Read this first, then
-`PROTOCOL.md` (v1 plus the §13 additions). Governing spec: `schoolbell-application-plan.md` and
-`schoolbell-overnight-agent-brief.md` (copies in `/home/nbull/Documents/Codex/2026-11-02/al/outputs/`).
+For the next agent or engineer taking over SchoolBell. No prior conversation is needed. Read this
+whole file first, then `PROTOCOL.md`, `docs/OPERATIONS.md` and `docs/KNOWN-ISSUES.md`.
 
-**Status:** a working lab pilot, not a certified emergency system. Bells, ring-now, live push-to-talk,
-recorded announcements, volume override/restore, the Windows installer and the Ubuntu installer all work
-end to end on real Windows audio in a VM and in a real systemd environment. Gaps are listed honestly below.
+SchoolBell is a locally hosted school bell and announcement system. An Ubuntu server hosts the
+office web UI and `/admin`. Windows classroom computers run a service and a tray app, which play
+scheduled bells, "ring now" bells, live push-to-talk and recorded announcements, and report what
+they actually played. It is **in production at one school** (≈38 computers). It is a pilot, not a
+certified emergency notification system.
 
-## 1. Repository
+## 0. Rules for whoever picks this up
 
-- Path `/home/nbull/BellSystem`, branch `main`, remote `origin` = github.com/0xC0FFEEBEEF/BellSystem.
-  `main` is pushed. Release **v0.9.4** is published (GPL-3.0-or-later); v0.9.3, built before the
-  licence was added, was deleted. The repository stays private until the owner makes it public, which
-  server self-update needs (the update check reads GitHub Releases without a token).
-- History was rewritten once (2026-11-03) to remove a committed test kit and lab credentials; every
-  token in it was revoked. Licence: GPL-3.0-or-later (`LICENSE`, `LICENSES.md` for third parties).
-- Layout: `src/Contracts` (shared protocol), `src/Server` (ASP.NET Core), `src/Client.Core`
-  (platform-neutral client logic), `src/Client.Audio` (NAudio WASAPI engine), `src/Client.Service`
-  (Windows service), `src/Client.Desktop` (tray companion), `web/` (React + TypeScript office UI),
-  `tools/EnrollTool`, `tools/Simulator`, `install/server` (install.sh, updater, units, Caddy template),
-  `install/windows` (Inno script, update runner, task XML, icon), `build/release.sh`, `scripts/lab/`
-  (all lab and test tooling), `tests/` (184 automated tests), `docs/evidence/` (raw test evidence),
-  `assets/sounds` (built-in sounds; `bell.wav` is the school's bell tone from `~/Music/belltone.wav`).
+1. **Never publish a release, push to a server or roll out to computers without the owner's
+   explicit go-ahead.** The owner has said "don't publish yet" before; ask when unsure.
+2. **Never print, copy or commit secrets.** That covers the release signing key
+   (`~/.config/schoolbell-release/release-signing.key.pem`), enrollment files and tokens, device
+   secrets and passwords. `.gitignore` blocks `*enroll*.json`, `*.key*`, `*.pfx` and `*.exe`.
+3. **Version numbers only go up.** A computer or server never treats a rebuild of the same version as
+   an update. Every fix that ships gets a new number.
+4. **Fix bugs with a test that fails on the old code first.** Every field bug below has one.
+5. Owner preferences: short, plain explanations; bells must ring once per moment; missed-bell
+   grace **6 s**; bell retry window **4 s**. The owner said not to touch volume or unmute behaviour
+   (an earlier "muted computers don't unmute" report was their own mistake).
 
-## 2. Versions and toolchain
+## 1. Where things stand
 
-- .NET **10.0.113** SDK (pinned in `global.json`; runtime 10.0.13). The official Microsoft SDK is installed in
-  `~/.dotnet` because Arch's source-built SDK lacks the ASP.NET packs: `export PATH=$HOME/.dotnet:$PATH`.
-- NuGet lock files are committed (fixed RIDs `linux-x64;win-x64`, Windows-only projects `win-x64`).
-- NAudio **2.2.1**. NAudio 3.x is a fresh major rewrite that was still getting WasapiOut fixes in Oct 2026.
-- Web: React 19.2.9, Vite 8.3.4, TypeScript 6.0.3, @vitejs/plugin-react 6.1.2 (`web/package-lock.json`).
-- Caddy **2.11.7** (bundled into the server release, sha512-verified). Inno Setup **6.7.3** (installed
-  in the lab VM, sha256-verified).
-- Protocol `v: 1` with additive v1.1 messages (bell.ring, device.settings, history.item, update.offer,
-  update.status). Server and client 0.9.0 are compatible.
+| Item | State |
+|---|---|
+| GitHub | `0xC0FFEEBEEF/BellSystem`, **public**, branch `main`. Licence GPL-3.0-or-later. |
+| Published releases | v0.9.4 … **v0.9.8** (latest). |
+| **v0.9.9** | **Built in `dist/`, not yet published** (commit `c78287c`). See §4 for the publish command. |
+| School server | `rhsvoice.SCSD.local` (10.8.0.46), Ubuntu 24.04, school timezone America/Chicago. Runs **0.9.8** (self-updated from Admin on 2026-11-05). Admin account `scsd`. |
+| School computers | Nearly all on client **0.9.8**. RJH-LAB on 0.9.7. **RHS-17141 (jennifer.massey) is broken**: its 0.9.7 update aborted and left the service stopped (repair in §5.4). |
+| Tests | 141 server + 72 client, all passing. `FakeControlServerTests.Durable_Cursor_Stops_Outbox_Redelivery_After_Reconnect` fails about 1 run in 5 (a race in the test's fake server, not product code). |
 
-## 3. Build, run, test
+**What v0.9.9 adds over v0.9.8** (all committed and pushed):
+
+- **Reconnect loops fixed (server).** The server closed the connection on `manifest.rejected`, an
+  "unknown" message. The settings message moved each computer's replay cursor, so every reconnect
+  replayed the whole outbox. Replays now send only the newest schedule.
+- **Updates never leave a computer dead (installer and updater).** Setup and the update runner now
+  wait for the service and tray app to exit, retry an aborted setup (exit 5), read exit codes
+  reliably, and always restart the SchoolBell service.
+- **Enrollment override.** Admin → Enrollment tokens has **+5 computers** and **+24 h** for an
+  enrollment that ran out or expired. Refused enrollments are logged with the reason, and
+  `enroll.log` on each computer says why enrollment failed.
+- **PDQ parameters use the server's certified name** (an IP fails TLS: setup exit code 10).
+- Missed-bell reports for bells before a computer was enrolled are dropped.
+- Abrupt disconnects are logged as plain "disconnected" instead of an ERROR. Log times are in
+  school time.
+
+## 2. Repository and toolchain
+
+- Path on the owner's machine: `/home/nbull/BellSystem`.
+- Layout:
+  - `src/Contracts`: shared protocol.
+  - `src/Server`: ASP.NET Core, loopback :5001 behind bundled Caddy on :443.
+  - `src/Client.Core`: platform-neutral client logic.
+  - `src/Client.Audio`: NAudio WASAPI.
+  - `src/Client.Service`: Windows service, `SchoolBellService.exe`, service name `SchoolBell`.
+  - `src/Client.Desktop`: tray app, `SchoolBellCompanion.exe`.
+  - `web/`: React + TypeScript office UI.
+  - `tools/EnrollTool`, `tools/DeploymentBootstrap` (PDQ launcher), `tools/Simulator`.
+  - `install/server`: `install.sh`, root updater, systemd units, Caddy template.
+  - `install/windows`: Inno script, `update-runner.ps1`.
+  - `build/release.sh`, `scripts/lab/`, `tests/`, `docs/`.
+- .NET **10.0.113** SDK in `~/.dotnet` (Arch's SDK lacks the ASP.NET packs). Run
+  `export PATH=$HOME/.dotnet:$PATH` first.
+- Node + npm for `web/`. NAudio 2.2.1, React 19, Vite 8, TypeScript 6. Caddy 2.11.7 is bundled.
+  Inno Setup 6.7.3 runs inside the Windows VM.
+- NuGet lock files are committed (fixed RIDs `linux-x64;win-x64`).
+
+## 3. Build and test
 
 ```bash
-export PATH=$HOME/.dotnet:$PATH
+cd /home/nbull/BellSystem && export PATH=$HOME/.dotnet:$PATH
 dotnet build SchoolBell.sln
-dotnet test tests/Server.Tests          # 121 tests
-dotnet test tests/Client.Tests          # 63 tests
-(cd web && npm ci && npm run build)     # office UI -> web/dist (the server serves it)
-dotnet run --project src/Server         # dev: http://127.0.0.1:5001, prints SETUP CODE once
-bash build/release.sh 0.9.5 --iscc-vm schoolbell-lab    # full signed release into dist/ (VM must be running)
-RELEASE_OUT=.build/x bash build/release.sh 0.9.5 --skip-installer   # server-only bundle elsewhere
+dotnet test tests/Server.Tests          # 141 tests
+dotnet test tests/Client.Tests          # 72 tests
+(cd web && npm ci && npm run build)     # office UI -> web/dist (served by the server)
 ```
-Release signing key: `~/.config/schoolbell-release/release-signing.key.pem` (ECDSA P-256, 0600,
-**never commit**). Public half: `build/release-signing.pub.pem`, which is pinned by servers
-(`/etc/schoolbell/release-signing.pub.pem`) and clients (`{app}\release-signing.pub.pem`).
 
-Install interfaces (both tested):
+## 4. Releasing (build, verify, publish)
+
+**Build.** This needs the Windows lab VM, because the installer is compiled with Inno Setup inside it.
+Start the VM, build, then shut it down (the owner prefers it off):
+
 ```bash
-sudo bash install.sh --hostname bells.school.example --timezone America/Chicago   # from the extracted bundle
+cd /home/nbull/BellSystem && export PATH=$HOME/.dotnet:$PATH
+virsh -c qemu:///system start schoolbell-lab
+# wait until the guest agent answers:
+until virsh -c qemu:///system qemu-agent-command schoolbell-lab '{"execute":"guest-ping"}' >/dev/null 2>&1; do sleep 5; done; sleep 30
+bash build/release.sh 0.9.10 --iscc-vm schoolbell-lab     # next unused version; wipes and refills dist/
+virsh -c qemu:///system shutdown schoolbell-lab
 ```
+
+`release.sh` does the rest:
+- Builds the web UI, the server, the Windows client and the installer.
+- Signs `release-manifest.json` with the release key. It refuses to run if the key is missing or
+  doesn't match `build/release-signing.pub.pem`.
+- Puts the matching signed Windows client inside the server bundle (`app/client-release/`).
+- Writes `dist/SHA256SUMS`.
+
+**Verify** before publishing:
+
+```bash
+openssl dgst -sha256 -verify build/release-signing.pub.pem -signature <(base64 -d dist/release-manifest.json.sig) dist/release-manifest.json
+grep -E '"version"|"commit"' dist/release-manifest.json
+tar -xzOf dist/server/schoolbell-server-linux-x64.tar.gz schoolbell-0.9.10/app/client-release/release-manifest.json | grep '"version"'
+sha256sum dist/server/schoolbell-server-linux-x64.tar.gz dist/windows/SchoolBellSetup.exe
+```
+
+**Publish** (only with the owner's go-ahead). Write release notes to a file, then:
+
+```bash
+gh release create v0.9.10 -R 0xC0FFEEBEEF/BellSystem --target <commit from the manifest> \
+  --title "SchoolBell 0.9.10" --notes-file <notes.md> --latest \
+  dist/server/schoolbell-server-linux-x64.tar.gz dist/server/install.sh dist/windows/SchoolBellSetup.exe \
+  dist/release-manifest.json dist/release-manifest.json.sig dist/SHA256SUMS dist/LICENSES.md dist/LICENSE
+```
+
+- **Asset names matter.** The server's updater looks for `release-manifest.json`,
+  `release-manifest.json.sig` and `schoolbell-server-linux-x64.tar.gz` on the latest release.
+- Afterwards, check that GitHub's digests match the local files:
+  `gh api repos/0xC0FFEEBEEF/BellSystem/releases/latest --jq '.assets[] | "\(.name) \(.digest)"'`.
+- Then update §1 of this file.
+
+**v0.9.9 is built and waiting** (commit `c78287c`, server bundle sha256 `455cc591…2896`, installer
+`70429625…5e08`). Notes: `dist/RELEASE-NOTES-0.9.9.md`. To publish, run `bash dist/publish-0.9.9.sh`. It
+checks the signature and checksum, runs the `gh release create` above, then prints GitHub's digests.
+`dist/` is gitignored and is wiped by the next `release.sh` run.
+
+## 5. Deploying at the school
+
+### 5.1 Server
+- **Admin → Updates → Server software → Check GitHub now → Install X.** The root updater does the rest:
+  - re-verifies the signature and SHA-256
+  - backs up the database
+  - runs `install.sh --upgrade` and health-checks
+  - rolls back on failure, restoring the database
+- The server log shows "server update to X requested … the root updater takes over". Details are
+  in `/var/lib/schoolbell/update/update.log` on the server.
+- Manual fallback (for example if the school's web filter blocks github.com, as it once did) keeps
+  all data:
+
+  ```bash
+  scp ~/BellSystem/dist/server/schoolbell-server-linux-x64.tar.gz scsd@rhsvoice:~/
+  # on rhsvoice:
+  tar -xzf schoolbell-server-linux-x64.tar.gz && cd schoolbell-<version> && sudo bash install.sh
+  ```
+
+### 5.2 Classroom computers
+- **Admin → Updates → Windows client updates → version → Roll out.** Set the batch size and the
+  minutes between batches.
+- Each computer:
+  - verifies the signature
+  - waits for a quiet moment (no bell or announcement due)
+  - runs `update-runner.ps1`: setup, then a health check, then reinstalling the previous version if
+    the new one doesn't reconnect
+- A computer counts as installed when it reconnects on the new version.
+- The server version must be ≥ the client version.
+
+### 5.3 New computers (PDQ)
+- **Admin → Windows deployment → Download Windows Installer.** The EXE embeds an enrollment and the
+  school CA.
+- PDQ parameters:
+  `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /SERVER=rhsvoice.SCSD.local /LOG="C:\Windows\Temp\SchoolBell-setup.log"`.
+- **Always use the name, never the IP.** The certificate covers only the `install.sh --hostname`
+  names.
+- Setup exit codes:
+  - **10**: installed, but enrollment failed. See `C:\ProgramData\SchoolBell\logs\enroll.log`.
+  - **11**: the service did not start.
+  - **5**: setup aborted (a file in use).
+- A used-up or expired enrollment can be reopened with **+5 computers** / **+24 h** in Admin.
+
+### 5.4 Diagnosing a computer from PDQ
+Use PDQ's **PowerShell** mode. In Command mode, PowerShell has to be wrapped in
+`powershell -NoProfile -Command "…"`. In PowerShell mode, don't wrap it: the outer shell expands
+`$_` inside the quotes.
+
 ```powershell
-SchoolBellSetup.exe --silent --server 10.0.2.50 --enrollment-file C:\Deploy\schoolbell-enroll.json --ca-file C:\Deploy\school-ca.cer
+Get-Service SchoolBell | Format-List Name,Status,StartType
+$log = Get-ChildItem C:\ProgramData\SchoolBell\updates -Recurse -Include update-runner.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+if ($log) { "== " + $log.FullName; Get-Content $log.FullName -Tail 20 }
+"== service.log"; Get-Content C:\ProgramData\SchoolBell\logs\service.log -Tail 30 -ErrorAction SilentlyContinue
 ```
-Exit codes: 0 ok · 2 bad or missing argument · 10 installed but enrollment failed · 11 service did not start.
 
-## 4. Releases
+**Repair RHS-17141** (service stopped after an aborted update). This closes the tray app, re-runs
+the installer already downloaded on that computer (a repair that keeps its enrollment), and starts
+the service:
 
-Built, not yet published: **v0.9.9** (commit `e488edc`): enrollment override (+5 computers / +24 h on used-up or expired
-enrollments), refused enrollments logged with the reason, enroll.log on the computer, no local expiry refusal, PDQ
-parameters use the server's certified name (field: /SERVER=<IP> fails TLS). Server bundle sha256 `f210f7a7…bfdf`,
-installer `360c156b…179b`.
-Published: **v0.9.8** (commit `d0a9cf3`, 2026-11-05): bell retries within 4 s of the bell's time for passing failures,
-6 s missed-bell grace, computers keep their connection when one message fails (field: a reconnect loop), sound
-cache swap retries Windows file locks, reconnect header capped at 100 queued results, History per-computer details
-with a no-report list, log times in school time. Server bundle sha256 `38f648a1…eef6`, installer `8ac490eb…1499`.
-Before that: **v0.9.7** (commit `7ec4a66`, 2026-11-05): client bell loop no longer wakes late after a bell plays (every
-other bell expired in the field), pre-publish bells not reported missed, hold to talk starts once every connected
-computer is ready, Admin → Log with .txt download. Server bundle sha256 `95a1d81b…0907a`, installer `17d95eb7…eb45`.
-Earlier: **v0.9.6** (`f74d477`, one bell per moment, scheduled bells in History), **v0.9.5** (`53f3c6a`, schedules over
-32 KB reach clients), **v0.9.4** (`c60cf0e`). The repository is public since 2026-11-04. Assets:
-`schoolbell-server-linux-x64.tar.gz` (sha256 `fdae1554…bfdd9`), `install.sh`, `SchoolBellSetup.exe`
-(sha256 `1e880f9d…c151`, unsigned), `release-manifest.json` + `.sig`, `SHA256SUMS`, `LICENSE`,
-`LICENSES.md`. Version numbers only go up: a server already on a version never sees a rebuild of the
-same version as an update, so a fixed release always gets a new number.
+```powershell
+Stop-Process -Name SchoolBellCompanion -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 5
+$p = Start-Process 'C:\ProgramData\SchoolBell\updates\0.9.7\SchoolBellSetup.exe' -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/LOG=C:\Windows\Temp\SchoolBell-repair.log' -Wait -PassThru
+"repair exit code: " + $p.ExitCode; Get-Service SchoolBell | Format-List Name,Status
+```
 
-To publish the next one: `bash build/release.sh 0.9.5 --iscc-vm schoolbell-lab`, check
-`openssl dgst -sha256 -verify build/release-signing.pub.pem` against the manifest, then
-`gh release create v0.9.5 --target <commit> …` with the same asset list (the server's updater looks for
-`release-manifest.json`, `release-manifest.json.sig` and `schoolbell-server-linux-x64.tar.gz` by name).
+Other places to look:
+- Computer logs: `C:\ProgramData\SchoolBell\logs\service.log`, `enroll.log`, and the tray app's
+  `%LOCALAPPDATA%\SchoolBell\companion.log`.
+- Server side: **Admin → Log** (Verbose adds every bell played; Download .txt), **History**
+  (per-computer result of every bell), and **Endpoints** (per-computer state; flags a computer that
+  went offline mid-update).
 
-## 5. Feature status
+## 6. What the field taught us (2026-11-04/05)
 
-Legend: **WIN** verified on real Windows audio (lab VM, output captured to WAV and analyzed) · **UBU**
-verified on Ubuntu 24.04.5 with systemd (privileged rootless container) · **SIM** simulator only ·
-**UNIT** automated tests only · **NO** not done.
+Each of these reached production. Each now has a test that fails on the old code.
 
-| Requirement | Status | Evidence / notes |
+| Symptom at the school | Cause | Fixed in |
 |---|---|---|
-| Scheduled bells from the 7-day signed cache; stable IDs, DST, overrides, missed-bell grace, dedupe | UNIT (+ server core from the earlier session) | `PublishTests`, `BellSchedulerTests`, `LargeManifestTests`. **Up to 0.9.4 no real schedule was ever accepted**: a school week is well over 32 KB and clients dropped larger messages (found at the first school, 25 computers at revision 0; fixed in 0.9.5, see PROTOCOL.md `max_message_bytes`). A scheduled bell firing on Windows was not watched live. |
-| Ring now (UI button, sound choice, everyone/group/selected) | WIN, UNIT | audible 2.92 s, 768 ms after the press; dedupe, expiry and hash tests |
-| Customizable bell sounds (upload, replace std-bell, delete) | UNIT, UI | `ExtensionTests`. Replacing a sound needs a schedule re-publish for cached bells. |
-| Volume override: master and app session, restore after success / crash | WIN | gate-a-matrix.txt: 30%+muted → 80% → 30%+muted; app-session mute captured and restored |
-| Locked session plays | WIN | |
-| Tray app killed mid-announcement → service continues and restores | WIN | |
-| Signed out (after a sign-in) → service's session-0 renderer plays | WIN | |
-| Service killed mid-announcement → SCM restart restores volume | WIN | |
-| No-user boot (nobody signed in since boot) | **WIN: silent** | Windows renders session-0 audio as digital silence before the first sign-in, including Windows' own SoundPlayer. The client now reports `no_renderer (no_user_since_boot)` and receipts are `unknown`, never `completed`. Needs testing on real hardware. |
-| Missing configured speaker → honest failure | WIN | `failed: output_missing`, state `missing_speaker` |
-| Recorded announcement (record/upload, preview, send, chime) | WIN | waveform match 0.98 vs source |
-| Live push-to-talk from the browser (Gate B) | WIN | Chrome with a fake mic file → server → Windows output; ~333 ms capture→speaker; ready 5.6 s after press |
-| Talk lease, single talker, lease expiry, stall stop | UNIT (+WIN stall path) | |
-| Reconnect with backoff, heartbeats, keep-alive timeouts | SIM, UNIT | 500 devices back in 1.5 s |
-| Keep-awake API + service thread | UNIT | **not exercised on Windows** |
-| Office UI: simple Home (who, hold to talk, ring, next bells), Announce, Bells (schedules, calendar, publish, sounds), Endpoints, History, /admin | UI built and screenshot-checked | `docs/evidence/ui/*.png` |
-| Endpoint label user-first `User (WIN11-VM)`; device ID ≠ display name | WIN | |
-| Per-device settings (speaker chooser, volume, cap, room, groups) | UNIT | the speaker list comes from the device |
-| Tray history (schoolwide text only; targeted office-only) | UNIT | the window was not visually checked on Windows |
-| Windows installer: silent args, Apps & Features entry, ACLs, service recovery, logon task, repair, clean uninstall | WIN | `docs/evidence/windows-installer.txt` |
-| Client updates pushed by the server (signed, staged, rollback runner) | WIN, UNIT | 0.9.1 → 0.9.2 rolled out from /admin to the VM and reached `installed`. **Rollback of a broken client build was not run.** |
-| Server install.sh on Ubuntu (fresh, repeat, HTTPS, units, permissions) | UBU | `docs/evidence/ubuntu-install.txt` |
-| Server self-update from GitHub (check, apply, root updater, signature, backup, health, rollback) | UBU (GitHub API mocked) | `docs/evidence/ubuntu-lifecycle.txt`: 0.9.0→0.9.1 done, tampered refused, broken 0.9.2 rolled back with DB restore; the "Regular Day" schedule survives repeat install, update, rollback, uninstall and reinstall. |
-| Backup / restore staging | UNIT | restore applies at the next start |
-| Whisper transcription | **NO (omitted at the owner's request)** | Adapter and queue exist and are off (`transcription_enabled=false`). Building whisper.cpp was blocked by the session's safety policy. |
-| Load: 100 and 500 simulated endpoints | SIM | §6 |
-| Authenticode signing | NO | no certificate |
+| No scheduled bell ever rang; 25 of 25 at "revision 0" | A real 7-day schedule is > 32 KB; clients dropped larger messages and the server's replay skipped it silently | 0.9.5 (clients take 1 MB and advertise it; server never sends a client more than it accepts) |
+| Bells rang twice or 3–4 times in a row | Two schedules shared times; back-to-back periods ended and started on the same minute | 0.9.6 (one bell per moment per target; clients also ring once across targets) |
+| Every other bell "Expired" on 36/38 computers | Bell loop timed its next wake from a clock read **before** the 3 s bell played, so it woke ~3 s late, past the 2 s grace | 0.9.7 (client) |
+| Hold to talk waited ~5.6 s | Server always waited the full 5 s preparation window | 0.9.7 (starts when every connected computer is ready) |
+| A computer reconnected every 2 s | One unhandled message ended the connection and was replayed on reconnect | 0.9.8 (client keeps the connection); 0.9.9 (server root cause below) |
+| Computers dropped ~50 ms after connecting; "resync cursor not found" on every reconnect | Server had no handler for `manifest.rejected`; the live settings message moved the device cursor out of the outbox | 0.9.9 (server) |
+| PDQ install exit code 10 | `/SERVER=10.8.0.46`; the certificate covers only the name | 0.9.9 (Admin builds the PDQ line from the certified name; enroll.log explains) |
+| RHS-17141 silent for hours | Update and rollback setup both aborted (exit 5, file in use); runner left the service stopped | 0.9.9 (wait for processes, retry, always restart the service) |
 
-## 6. Measured results (single run each, lab hardware: 6-core host also running the 3 GB Windows VM)
+Also added on request:
+- **Scheduled bells in History**, with per-computer details and a "no report" list.
+- **Admin → Log** with a Verbose switch and .txt download.
+- **Bell retries:** after 1 s and 2.5 s, only within 4 s of the bell's time, and only for passing
+  failures. Missing sounds are not retried.
+- **6 s missed-bell grace.**
+- **Enrollment override.**
 
-| | 100 | 500 |
+## 7. Feature status
+
+Legend: **WIN** verified on Windows audio in the lab VM (output captured and analyzed) · **UBU**
+verified on Ubuntu 24.04 with systemd · **FIELD** working at the school · **UNIT** automated
+tests only · **NO** not done.
+
+| Requirement | Status | Notes |
+|---|---|---|
+| Scheduled bells from the 7-day signed cache | FIELD, UNIT | 0.9.8 at the school: whole periods "completed" on every connected computer |
+| Ring now | FIELD, WIN | |
+| Customizable bell sounds | UNIT, UI | republish after replacing a sound |
+| Volume override (master + app session) with restore | WIN | do not change (owner) |
+| Locked session plays / signed out plays (service renderer) | WIN | |
+| No-user boot (nobody signed in since boot) | **WIN: silent** | Windows plays session-0 audio as silence before the first sign-in; reported honestly as `no_renderer` |
+| Recorded announcements | WIN | |
+| Live push-to-talk | FIELD, WIN | starts in ~1 s since 0.9.7 |
+| Windows installer (silent, Apps entry, repair, uninstall) | FIELD, WIN | |
+| Client updates (signed, staged, rollback) | FIELD | 0.9.5–0.9.8 rolled out at the school; one computer failed (fixed in 0.9.9) |
+| Server install + self-update from GitHub | FIELD, UBU | 0.9.7 → 0.9.8 via Admin at the school |
+| History (announcements, scheduled, manual, per-computer) | FIELD | |
+| Admin → Log | FIELD | |
+| Keep-awake | UNIT | not exercised on Windows |
+| Transcription (Whisper) | NO | omitted at the owner's request; adapter off |
+| Authenticode signing | NO | no certificate; SmartScreen may warn |
+| Load: 100 / 500 simulated endpoints | SIM | §9 |
+
+## 8. Known issues and next tasks
+
+Full list in `docs/KNOWN-ISSUES.md`. The ones that matter most:
+
+1. **Publish 0.9.9** (owner's go-ahead), update the server from Admin, then roll out client 0.9.9.
+   **Repair RHS-17141 first** (§5.4): the updater on it is the old one.
+2. The update-runner fix only helps updates **from** 0.9.9 onwards, because each update is run by
+   the runner already on the computer. Updating **to** 0.9.9 benefits from the installer's own new
+   wait. Watch Endpoints for any computer flagged "went offline while updating".
+3. Schedule manifests use a school-wide HMAC key. Moving to the existing ECDSA signing needs a
+   protocol revision.
+4. Silent before the first sign-in since boot (Windows behaviour). Keep classroom computers signed
+   in (locked is fine).
+5. The flaky client test (§1).
+6. Possible improvement: buffer the first ~1 s of hold-to-talk audio so nothing spoken before
+   "ready" is lost.
+
+## 9. Measured results (lab, single runs)
+
+| | 100 endpoints | 500 endpoints |
 |---|---|---|
 | all connected | 0.53 s | 1.27 s |
 | ring delivery p95 | 42 ms | 157 ms |
 | live egress (PCM16 16 kHz) | 25.7 Mbps | 126.9 Mbps |
-| live transport latency p95/p99 | 4/6 ms | 31/194 ms (91/469 ms in a rerun under contention) |
-| server CPU during live, avg/max (% of 1 core) | 8/21 | 27–33/54–108 |
+| live transport latency p95/p99 | 4/6 ms | 31/194 ms |
 | server RSS max | 309 MB | 348 MB |
-| mass reconnect | 0.67 s | 1.5–2.0 s |
 
-Transport only: simulated devices don't render audio. The single real endpoint measured about 333 ms
-browser→speaker. Raw JSON: `docs/evidence/load/`.
+Raw data: `docs/evidence/load/`.
 
-## 7. Lab environment (on this machine)
+## 10. Lab environment (owner's machine)
 
-- **Windows VM** `schoolbell-lab` (libvirt `qemu:///system`): a copy-on-write **overlay of
-  `~/VMs/win11/win11.qcow2`**. Do not boot the original `win11` while this overlay is in use, or the
-  overlay becomes invalid. Delete `~/VMs/schoolbell-lab` and `virsh undefine schoolbell-lab --nvram` when finished.
-  Account `User`, blank password, auto sign-in. Audio output is recorded to `~/VMs/schoolbell-lab/audio/out.wav`.
-  Shared folder: `~/VMs/schoolbell-lab/share` = `Z:`. Run commands with `scripts/lab/vmexec.py -c '<PowerShell>'`.
-  A SchoolBell client is installed (last updated to 0.9.2 by the client-update test).
-- **Lab server** (the owner is testing against it): **ephemeral data under `/tmp/claude-1000/.../scratchpad/lab`**.
-  Start/stop with `scripts/lab/lan-up.sh` / `lab-down.sh`. Office URL https://10.1.0.191:8443 (also 10.1.16.63,
-  192.168.122.1), CA `.../lab/lab-ca.crt`. Accounts: a lab-only office account (min length lowered
-  via `SchoolBell__MinPasswordLength=6`) and `labadmin` (password file in the lab dir). The host's `ufw`
-  must allow 8443/tcp. The binary is `dist/publish/server-lan` (built before the sound-packaging fix; this lab
-  DB already has its sounds).
-- **Load-test server**: `.../scratchpad/loadlab` on 127.0.0.1:8444, with 500 simulated device records.
-- **Ubuntu container** `sb-ubuntu` (podman, image `localhost/schoolbell-ubuntu2404-systemd`, 443→127.0.0.1:9443).
-- Owner's test kit: `/home/nbull/SchoolBell-test/` (installer, CA, README.txt). Its enrollment token was revoked
-  before publishing; download a fresh enrollment file from Admin to reuse it.
-
-## 8. Known issues and limits (also see KNOWN-ISSUES.md)
-
-1. **Pre-login audio**: silent until someone has signed in once since boot (Windows 11 25H2 VM). Reported
-   honestly. Schools need classroom PCs signed in (locked is fine) or must verify their hardware.
-2. **First start after install/update is slow** (97 s on the 3 GB VM while Defender scans about 120 MB). The
-   installer and update runner pre-warm, then start the service with retries.
-3. **Manifest signing is HMAC** with a key derived from the per-school trust pin (from the earlier session).
-   A stolen device config could forge manifests. Move to Ed25519/ECDSA (the release-key code exists).
-4. Slow consumers: the backlog builds up in TCP and proxy buffers the server can't see; renderers discard audio
-   older than 2 s, so nothing plays late, but bandwidth is wasted. Real flow control needs device acks.
-5. Re-enrolling by the **same computer name** reuses the device record (settings and groups kept, outbox
-   cleared). Two machines with the same name will fight over one identity; names must be unique.
-6. Client updates: a successful update is tested on Windows; **rollback of a broken client build is not**. It
-   depends on `ProgramData\SchoolBell\updates\installed-setup.exe` (saved by the installer, confirmed present).
-7. Unsigned installer (SmartScreen warning). Whisper is off. Keep-awake not tested on Windows.
-
-## 9. Next tasks, in order of impact
-
-1. **Make the repository public** (owner), then on the school server confirm **Admin → Server software →
-   Check GitHub now** finds v0.9.4 (or the next release) as a verified release.
-2. **Real hardware**: classroom PC + speakers. No-user boot, headphones plugged/unplugged, HDMI output
-   changes, locked/RDP/fast-user-switch, keep-awake (powercfg /requests), scheduled bell timing spread on two
-   or more PCs.
-3. **Client update rollback**: roll out a deliberately broken signed client build to the VM and confirm
-   `rolled_back` with the previous version running again.
-4. Replace HMAC manifest signing with asymmetric signatures; then re-enable Whisper (build pinned
-   whisper.cpp v1.9.5 with `GGML_NATIVE=OFF GGML_CPU_ALL_VARIANTS=ON`; model `ggml-small.en.bin`
-   sha256 `c6138d6d…1e5d`, already downloaded to `.build/whisper/models/`), plus a `schoolbell-whisper.service`.
-5. Code-sign `SchoolBellSetup.exe` once the school has a certificate.
+- **Windows VM `schoolbell-lab`** (libvirt `qemu:///system`):
+  - Copy-on-write overlay of `~/VMs/win11/win11.qcow2`. Do not boot the original `win11` while it
+    is in use.
+  - Account `User`, auto sign-in. Shared folder `~/VMs/schoolbell-lab/share` = `Z:`.
+  - Run commands with `scripts/lab/vmexec.py -c '<PowerShell>'`.
+  - Used for compiling the installer. Keep it shut down when idle.
+- **Ubuntu container `sb-ubuntu`** (podman, systemd): used by `scripts/lab/ubuntu-upgrade-test.sh`
+  for install/update/rollback lifecycle tests.
+- Lab servers (`scripts/lab/lan-up.sh`, `lab-up.sh`) keep their data in a session scratch
+  directory; recreate them as needed.
+- Spec documents: `schoolbell-application-plan.md` and `schoolbell-overnight-agent-brief.md` in
+  `/home/nbull/Documents/Codex/2026-11-02/al/outputs/`.

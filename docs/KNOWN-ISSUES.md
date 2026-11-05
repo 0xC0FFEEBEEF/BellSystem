@@ -1,6 +1,6 @@
 # SchoolBell known issues and limits
 
-Current as of release 0.9.8. `HANDOFF.md` §5 lists what was verified and how.
+Current as of release 0.9.9. `HANDOFF.md` §5 lists what was verified and how.
 
 1. **Silent before the first sign-in since boot.** Windows 11 (25H2, tested in a VM) plays session-0
    audio as digital silence until someone has signed in once since boot. A locked or signed-out
