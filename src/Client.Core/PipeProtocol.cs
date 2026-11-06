@@ -27,6 +27,7 @@ public static class PipeProtocol
     public const string TAnnStart = "ann.start";
     public const string TAnnFrames = "ann.frames";
     public const string TAnnEnd = "ann.end";
+    public const string TAnnTranscript = "ann.transcript";
     public const string TKeepAwakeState = "keepawake.state";
     public const string TManifestState = "manifest.state";
 
@@ -82,6 +83,8 @@ public sealed record PipeAnnStart(
 public sealed record PipeFrameLine(uint Seq, ulong CaptureTsMs, byte Flags, string PcmB64);
 public sealed record PipeAnnFrames(string AnnouncementId, List<PipeFrameLine> Frames);
 public sealed record PipeAnnEnd(string AnnouncementId, string EndedBy);
+public sealed record PipeAnnTranscript(
+    string AnnouncementId, string Status, bool Schoolwide, string? Text, long At);
 public sealed record PipeKeepAwakeState(bool Desired, bool DisplayOff, long ExpiresAt);
 public sealed record PipeNextOccurrence(string OccurrenceId, string BellName, long StartsAt, string LocalHm);
 public sealed record PipeManifestState(long Revision, long ExpiresAt, bool Stale, PipeNextOccurrence? Next);

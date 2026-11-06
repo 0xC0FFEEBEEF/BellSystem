@@ -106,6 +106,7 @@ public sealed class Worker : BackgroundService
         _agent.ManifestAccepted += _ => _pipe.SendManifestState();
         _agent.StateChanged += () => _pipe.SendKeepAwakeState();
         _agent.HistoryChanged += () => _pipe.BroadcastHistory();
+        _agent.AnnouncementTranscriptReceived += update => _pipe.BroadcastTranscript(update);
         _agent.ConnectionChanged += connected =>
         {
             _pipe.BroadcastState();

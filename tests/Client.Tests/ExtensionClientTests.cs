@@ -131,6 +131,23 @@ public class ExtensionClientTests
         Assert.Equal(["a1"], run.Agent.History.Snapshot().Select(i => i.AnnouncementId));
     }
 
+    [Fact]
+    public async Task Live_transcript_is_ephemeral_and_targeted_text_is_removed()
+    {
+        await using var run = await StartAsync();
+        var before = run.Agent.Cursor.Cursor;
+        var received = new TaskCompletionSource<AnnouncementTranscriptPayload>(TaskCreationOptions.RunContinuationsAsynchronously);
+        run.Agent.AnnouncementTranscriptReceived += update => received.TrySetResult(update);
+
+        run.Server.QueueEvent(Protocol.TAnnouncementTranscript, PayloadSerializer.Node(
+            new AnnouncementTranscriptPayload("ann-live", "live", false, "private words", NowMs())));
+
+        var update = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(update.Schoolwide);
+        Assert.Null(update.Text);
+        Assert.Equal(before, run.Agent.Cursor.Cursor); // partials never become the durable resync cursor
+    }
+
     // ------------------------------------------------------------------ renderer jitter buffer
 
     private static byte[] Pcm(int samples, short value)

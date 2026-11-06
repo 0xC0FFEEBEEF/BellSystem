@@ -5,9 +5,10 @@
 set -u
 PURGE=0; [ "${1:-}" = "--purge-data" ] && PURGE=1
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
-systemctl disable --now schoolbell-update.path schoolbell schoolbell-caddy 2>/dev/null || true
+systemctl disable --now schoolbell-update.path schoolbell schoolbell-whisper schoolbell-caddy 2>/dev/null || true
 rm -f /etc/systemd/system/schoolbell.service /etc/systemd/system/schoolbell-caddy.service \
-      /etc/systemd/system/schoolbell-update.service /etc/systemd/system/schoolbell-update.path
+      /etc/systemd/system/schoolbell-whisper.service /etc/systemd/system/schoolbell-update.service \
+      /etc/systemd/system/schoolbell-update.path
 systemctl daemon-reload
 rm -f /usr/local/sbin/schoolbell-update
 rm -rf /opt/schoolbell

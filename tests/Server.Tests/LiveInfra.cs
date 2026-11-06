@@ -123,6 +123,23 @@ public static class LiveTest
     private static void W16(byte[] b, int off, int v) => System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(b.AsSpan(off), (short)v);
 }
 
+public class LiveTranscriptWavTests
+{
+    [Fact]
+    public void In_memory_live_snapshot_is_a_complete_mono_16k_wav()
+    {
+        var pcm = new byte[640];
+        var wav = Wav.Mono16Bytes(pcm);
+        var parsed = Wav.Parse(wav);
+        Assert.NotNull(parsed);
+        Assert.Equal(16_000, parsed!.Inspect.SampleRate);
+        Assert.Equal(1, parsed.Inspect.Channels);
+        Assert.Equal(16, parsed.Inspect.BitsPerSample);
+        Assert.Equal(pcm.Length, parsed.Inspect.DataBytes);
+        Assert.Equal(pcm, parsed.Pcm(wav).ToArray());
+    }
+}
+
 /// Control WS client: handshake completed, then a background reader feeds NextAsync so a test can
 /// wait for (or explicitly not-wait-for) a message without wedging.
 public sealed class ControlClient : IAsyncDisposable

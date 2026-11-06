@@ -22,6 +22,7 @@ public sealed class ServerConfig
     public string UpdateRepo { get; set; } = "0xC0FFEEBEEF/BellSystem";
     public string UpdateApiBase { get; set; } = "https://api.github.com";   // GitHub REST API (overridable for tests/mirrors)
     public string WhisperUrl { get; set; } = "http://127.0.0.1:8178";
+    public bool? TranscriptionEnabled { get; set; }
     public string WebRoot { get; set; } = "";
     public int MinPasswordLength { get; set; } = 1;            // built office UI (wwwroot); "" = next to the binary
 
@@ -49,6 +50,7 @@ public sealed class ServerConfig
             UpdateRepo = s["UpdateRepo"] ?? "0xC0FFEEBEEF/BellSystem",
             UpdateApiBase = (s["UpdateApiBase"] ?? "https://api.github.com").TrimEnd('/'),
             WhisperUrl = s["WhisperUrl"] ?? "http://127.0.0.1:8178",
+            TranscriptionEnabled = ParseBool(s["TranscriptionEnabled"]),
             WebRoot = s["WebRoot"] ?? "",
             MinPasswordLength = ParseInt(s["MinPasswordLength"], 1),
         };
@@ -60,4 +62,7 @@ public sealed class ServerConfig
 
     private static int ParseInt(string? v, int fallback) =>
         int.TryParse(v, out var x) && x > 0 ? x : fallback;
+
+    private static bool? ParseBool(string? v) =>
+        bool.TryParse(v, out var x) ? x : v == "1" ? true : v == "0" ? false : null;
 }

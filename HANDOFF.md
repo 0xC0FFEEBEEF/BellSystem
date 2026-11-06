@@ -248,7 +248,7 @@ tests only · **NO** not done.
 | History (announcements, scheduled, manual, per-computer) | FIELD | |
 | Admin → Log | FIELD | |
 | Keep-awake | UNIT | not exercised on Windows |
-| Transcription (Whisper) | NO | omitted at the owner's request; adapter off |
+| Transcription (Whisper) | DEV | owner requested it 2026-11-06; local whisper.cpp `small.en`, live partials and durable final transcripts are implemented but not released |
 | Authenticode signing | NO | no certificate; SmartScreen may warn |
 | Load: 100 / 500 simulated endpoints | SIM | §9 |
 

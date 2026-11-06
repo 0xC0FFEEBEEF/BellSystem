@@ -60,7 +60,7 @@ public sealed class ControlSession : IAsyncDisposable
         var proof = AuthProof.Compute(cfg.DeviceSecret, nonce, cfg.DeviceId);
         await SendAsync(ControlEnvelope.Create(Protocol.TAuthResponse,
             PayloadSerializer.Node(new AuthResponsePayload(cfg.DeviceId, cfg.ClientVersion, proof,
-                Protocol.MaxServerMessageBytes))), ct);
+                Protocol.MaxServerMessageBytes, ["live_transcript"]))), ct);
 
         // 3) auth.ok
         var ok = await ReceiveEnvelopeAsync(ct)

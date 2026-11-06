@@ -148,7 +148,9 @@ public class FakeControlServerTests
         await server.WaitForAsync(Protocol.TScheduleAck);
         var acksFirst = server.Received.Count(e => e.Type == Protocol.TScheduleAck);
         Assert.Equal(1, acksFirst);
-        Assert.Equal(manifestEvent.EventId, h.Agent.Cursor.Cursor); // durable cursor at the processed event
+        // The acknowledgement is written inside the handler just before Dispatch advances the
+        // durable cursor, so wait for that final in-process step instead of racing it.
+        Assert.True(await server.WaitUntilAsync(() => h.Agent.Cursor.Cursor == manifestEvent.EventId));
 
         server.CloseLiveConnectionAbruptly(); // forced disconnect mid-session
 

@@ -107,6 +107,16 @@ public sealed partial class DeviceAgent
         return true;
     }
 
+    private bool HandleAnnouncementTranscript(ControlEnvelope env)
+    {
+        var update = PayloadSerializer.ToPayload<AnnouncementTranscriptPayload>(env);
+        if (update is null || string.IsNullOrEmpty(update.AnnouncementId)) return true;
+        // Defense in depth: targeted transcript text is never exposed to the desktop session.
+        if (!update.Schoolwide) update = update with { Text = null };
+        AnnouncementTranscriptReceived?.Invoke(update);
+        return true;
+    }
+
     /// Called when the active console user changes (shared computers).
     public void OnActiveUserChanged()
     {

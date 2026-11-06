@@ -86,12 +86,22 @@ trust-on-first-use and no certificate bypass.
 - **Endpoints**: per computer state: connected, ready to play, playing, muted, missing speaker, no
   renderer, stale, offline, playback failed. A green connection does not mean audible sound. Per-computer
   settings choose the speaker, announcement volume and cap, room and groups.
-- **History**: delivery results per announcement and bell, with honest final states.
+- **History**: delivery results per announcement and bell, with honest final states and locally
+  generated transcripts. During a live schoolwide announcement, classroom notifications can open a
+  live transcript; the same window changes to the final transcript after the announcement. Targeted
+  transcript text stays office-only.
 - **Keep computers awake** (`/admin`): scoped policies with an absolute expiry, honored offline. They
   do not unlock screens or override manual sleep.
 
 The bell and announcement volume override raises the Windows master volume (and unmutes) for the
 duration of the sound, then puts master and per-app volume back exactly as they were.
+
+Transcription runs entirely on the SchoolBell server through `schoolbell-whisper.service` on loopback
+port 8178. Check it with `systemctl status schoolbell-whisper` and
+`journalctl -u schoolbell-whisper -f`. It uses the bundled English `small.en` model, is CPU-limited to
+two cores, and never blocks audio playback. Set `SchoolBell__TranscriptionEnabled=false` in
+`/etc/schoolbell/env` and restart `schoolbell` to disable it; queued final transcripts resume when it
+is re-enabled.
 
 ## Updates
 

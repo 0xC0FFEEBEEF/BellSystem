@@ -16,10 +16,18 @@ public sealed class LiveSettings
 
     private readonly Db _db;
     private readonly ILogger<LiveSettings> _log;
+    private readonly bool? _transcriptionOverride;
 
     public LiveSettings(Db db, ILogger<LiveSettings>? log = null)
+        : this(db, (bool?)null, log) { }
+
+    public LiveSettings(Db db, ServerConfig cfg, ILogger<LiveSettings>? log = null)
+        : this(db, cfg.TranscriptionEnabled, log) { }
+
+    private LiveSettings(Db db, bool? transcriptionOverride, ILogger<LiveSettings>? log)
     {
         _db = db;
+        _transcriptionOverride = transcriptionOverride;
         _log = log ?? LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Warning)).CreateLogger<LiveSettings>();
     }
 
@@ -71,7 +79,9 @@ public sealed class LiveSettings
         get
         {
             var raw = _db.GetSetting("transcription_enabled");
-            return raw is not null && (raw == "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase));
+            if (_transcriptionOverride is bool configured) return configured;
+            return raw is not null
+                && (raw == "1" || raw.Equals("true", StringComparison.OrdinalIgnoreCase));
         }
     }
 

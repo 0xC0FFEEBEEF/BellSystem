@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using SchoolBell.Client.Core;
 using SchoolBell.Contracts;
 
 namespace SchoolBell.Client.Desktop;
@@ -16,6 +17,11 @@ internal sealed class CompanionContext : ApplicationContext
     private readonly SynchronizationContext _ui;
     private readonly System.Windows.Forms.Timer _refresh;
     private readonly Dictionary<string, Icon> _icons = [];
+    private BellNotificationForm? _bellNotification;
+    private AnnouncementNotificationForm? _announcementNotification;
+    private readonly Dictionary<string, TranscriptForm> _transcriptForms = [];
+    private readonly Dictionary<string, PipeAnnTranscript> _liveTranscripts = [];
+    private string? _lastNotifiedBellId;
     public int ExitCode { get; private set; }
 
     public CompanionContext(bool showHistory)
@@ -46,12 +52,75 @@ internal sealed class CompanionContext : ApplicationContext
         _tray.DoubleClick += (_, _) => ShowHistory();
 
         _pipe.Changed += () => _ui.Post(_ => Render(), null);
+        _pipe.BellPlaying += bell => _ui.Post(_ => ShowBellNotification(bell), null);
+        _pipe.AnnouncementStarted += announcement => _ui.Post(_ => ShowAnnouncementNotification(announcement), null);
+        _pipe.AnnouncementEnded += announcement => _ui.Post(_ => EndAnnouncementNotification(announcement), null);
+        _pipe.TranscriptUpdated += update => _ui.Post(_ => ApplyTranscriptUpdate(update), null);
         _pipe.Start();
         _refresh = new System.Windows.Forms.Timer { Interval = 15_000 };
         _refresh.Tick += (_, _) => Render();
         _refresh.Start();
         Render();
         if (showHistory) ShowHistory();
+    }
+
+    private void ShowBellNotification(PipeBellPlay bell)
+    {
+        // A passing playback failure can be retried briefly with the same occurrence ID. Keep
+        // the notification calm and show it once even when audio needs another attempt.
+        if (_lastNotifiedBellId == bell.OccurrenceId) return;
+        _lastNotifiedBellId = bell.OccurrenceId;
+
+        var name = string.IsNullOrWhiteSpace(bell.BellName) ? "School bell" : bell.BellName.Trim();
+        if (name.Length > 180) name = name[..177] + "...";
+        _bellNotification?.Close();
+        int bottomOffset = _announcementNotification is { Visible: true } ? _announcementNotification.Height + 24 : 14;
+        _bellNotification = new BellNotificationForm(name, bottomOffset);
+        _bellNotification.FormClosed += (_, _) => _bellNotification = null;
+        _bellNotification.Show();
+    }
+
+    private void ShowAnnouncementNotification(PipeAnnStart announcement)
+    {
+        _announcementNotification?.Close();
+        _announcementNotification = new AnnouncementNotificationForm(announcement.AnnouncementId,
+            announcement.SourceLabel, ViewTranscript);
+        _announcementNotification.FormClosed += (_, _) =>
+        {
+            if (_announcementNotification?.AnnouncementId == announcement.AnnouncementId)
+                _announcementNotification = null;
+        };
+        _announcementNotification.Show();
+    }
+
+    private void EndAnnouncementNotification(PipeAnnEnd announcement)
+    {
+        if (_announcementNotification?.AnnouncementId == announcement.AnnouncementId)
+            _announcementNotification.MarkEnded();
+        if (_transcriptForms.TryGetValue(announcement.AnnouncementId, out var form))
+            form.MarkEnded();
+    }
+
+    private void ApplyTranscriptUpdate(PipeAnnTranscript update)
+    {
+        _liveTranscripts[update.AnnouncementId] = update;
+        if (_transcriptForms.TryGetValue(update.AnnouncementId, out var form)) form.Apply(update);
+    }
+
+    private void ViewTranscript(string announcementId, string sourceLabel)
+    {
+        if (!_transcriptForms.TryGetValue(announcementId, out var form) || form.IsDisposed)
+        {
+            form = new TranscriptForm(announcementId, sourceLabel);
+            _transcriptForms[announcementId] = form;
+            form.FormClosed += (_, _) => _transcriptForms.Remove(announcementId);
+        }
+        if (_liveTranscripts.TryGetValue(announcementId, out var live)) form.Apply(live);
+        var history = _pipe.History.FirstOrDefault(h => h.AnnouncementId == announcementId);
+        if (history is not null) form.Apply(history);
+        form.Show();
+        form.WindowState = FormWindowState.Normal;
+        form.Activate();
     }
 
     private void ShowHistory()
@@ -68,7 +137,7 @@ internal sealed class CompanionContext : ApplicationContext
         string status, color;
         var audio = _pipe.Audio;
         if (!_pipe.PipeConnected) { status = "SchoolBell service not running"; color = "red"; }
-        else if (svc is null || !svc.Connected) { status = "Offline — cached bells still ring"; color = "amber"; }
+        else if (svc is null || !svc.Connected) { status = "Offline"; color = "amber"; }
         else if (_pipe.Slot == "renderer" && audio is { Renderer: not "ready" }) { status = $"Connected — speaker problem ({audio.Reason})"; color = "amber"; }
         else if (_pipe.Slot == "renderer" && audio is { MasterMuted: true } or { SessionMuted: true }) { status = "Connected — muted (announcements unmute)"; color = "green"; }
         else { status = "Connected"; color = "green"; }
@@ -94,6 +163,13 @@ internal sealed class CompanionContext : ApplicationContext
         _tray.Text = tip.Length > 120 ? tip[..120] : tip;
         _tray.Icon = IconFor(color);
         _history.UpdateFrom(_pipe, status);
+        foreach (var item in _pipe.History)
+        {
+            if (_transcriptForms.TryGetValue(item.AnnouncementId, out var transcript)) transcript.Apply(item);
+            if (item.TranscriptStatus == "done" && _announcementNotification?.AnnouncementId == item.AnnouncementId)
+                _announcementNotification.MarkTranscriptReady();
+            if (item.TranscriptStatus is "done" or "failed") _liveTranscripts.Remove(item.AnnouncementId);
+        }
     }
 
     private Icon IconFor(string color)
@@ -129,12 +205,341 @@ internal sealed class CompanionContext : ApplicationContext
         if (disposing)
         {
             _refresh.Dispose();
+            _bellNotification?.Close();
+            _bellNotification?.Dispose();
+            _announcementNotification?.Close();
+            _announcementNotification?.Dispose();
+            foreach (var form in _transcriptForms.Values.ToList()) form.Dispose();
             _tray.Visible = false;
             _tray.Dispose();
             _pipe.Dispose();
             _history.Dispose();
         }
         base.Dispose(disposing);
+    }
+}
+
+/// A compact, non-activating bell card. It is independent of Windows notification settings,
+/// never steals keyboard focus, and stays inside the working area above the taskbar.
+internal sealed class BellNotificationForm : Form
+{
+    private const int WsExNoActivate = 0x08000000;
+    private const int WsExToolWindow = 0x00000080;
+    private readonly System.Windows.Forms.Timer _dismiss;
+
+    public BellNotificationForm(string bellName, int bottomOffset = 14)
+    {
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        TopMost = true;
+        StartPosition = FormStartPosition.Manual;
+        BackColor = Color.FromArgb(31, 35, 43);
+        ForeColor = Color.White;
+        ClientSize = new Size(330, 82);
+        Font = new Font("Segoe UI", 9.5f);
+        AccessibleName = $"Bell ringing: {bellName}";
+
+        var accent = new Panel
+        {
+            BackColor = Color.FromArgb(69, 144, 255),
+            Dock = DockStyle.Left,
+            Width = 5,
+        };
+        var title = new Label
+        {
+            AutoSize = false,
+            Text = "Bell ringing",
+            Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold),
+            ForeColor = Color.White,
+            Location = new Point(24, 14),
+            Size = new Size(282, 24),
+        };
+        var detail = new Label
+        {
+            AutoEllipsis = true,
+            Text = bellName,
+            Font = new Font("Segoe UI", 9.5f),
+            ForeColor = Color.FromArgb(218, 223, 232),
+            Location = new Point(24, 40),
+            Size = new Size(282, 28),
+        };
+
+        Controls.Add(detail);
+        Controls.Add(title);
+        Controls.Add(accent);
+        foreach (Control control in Controls) control.Click += (_, _) => Close();
+        Click += (_, _) => Close();
+
+        _dismiss = new System.Windows.Forms.Timer { Interval = 12_000 };
+        _dismiss.Tick += (_, _) => Close();
+        Shown += (_, _) =>
+        {
+            var work = Screen.FromPoint(Cursor.Position).WorkingArea;
+            Location = new Point(work.Right - Width - 14, work.Bottom - Height - bottomOffset);
+            using var shape = new GraphicsPath();
+            const int radius = 16;
+            shape.AddArc(0, 0, radius, radius, 180, 90);
+            shape.AddArc(Width - radius, 0, radius, radius, 270, 90);
+            shape.AddArc(Width - radius, Height - radius, radius, radius, 0, 90);
+            shape.AddArc(0, Height - radius, radius, radius, 90, 90);
+            shape.CloseFigure();
+            Region = new Region(shape);
+            _dismiss.Start();
+        };
+    }
+
+    protected override bool ShowWithoutActivation => true;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= WsExNoActivate | WsExToolWindow;
+            return cp;
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _dismiss.Dispose();
+        }
+        base.Dispose(disposing);
+    }
+}
+
+/// A persistent announcement card. It remains available after the audio ends so the user can
+/// open the completed transcript; View and Ignore are the only dismissing actions.
+internal sealed class AnnouncementNotificationForm : Form
+{
+    private const int WsExNoActivate = 0x08000000;
+    private const int WsExToolWindow = 0x00000080;
+    private readonly Label _title;
+    private readonly Action<string, string> _view;
+    private readonly string _sourceLabel;
+
+    public string AnnouncementId { get; }
+
+    public AnnouncementNotificationForm(string announcementId, string sourceLabel,
+        Action<string, string> view)
+    {
+        AnnouncementId = announcementId;
+        _sourceLabel = string.IsNullOrWhiteSpace(sourceLabel) ? "Office" : sourceLabel.Trim();
+        _view = view;
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        TopMost = true;
+        StartPosition = FormStartPosition.Manual;
+        BackColor = Color.FromArgb(31, 35, 43);
+        ForeColor = Color.White;
+        ClientSize = new Size(370, 132);
+        Font = new Font("Segoe UI", 9.5f);
+        AccessibleName = $"Announcement from {_sourceLabel}";
+
+        var accent = new Panel { BackColor = Color.FromArgb(138, 92, 246), Dock = DockStyle.Left, Width = 5 };
+        _title = new Label
+        {
+            Text = "Announcement in progress",
+            Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold),
+            ForeColor = Color.White,
+            Location = new Point(22, 13),
+            Size = new Size(325, 23),
+        };
+        var detail = new Label
+        {
+            AutoEllipsis = true,
+            Text = _sourceLabel,
+            ForeColor = Color.FromArgb(218, 223, 232),
+            Location = new Point(22, 38),
+            Size = new Size(325, 24),
+        };
+        var ignore = CardButton("Ignore", 190, 82, Color.FromArgb(58, 64, 75));
+        var open = CardButton("View transcript", 262, 82, Color.FromArgb(69, 108, 232));
+        ignore.Size = new Size(64, 32);
+        open.Size = new Size(90, 32);
+        ignore.Click += (_, _) => Close();
+        open.Click += (_, _) => OpenTranscript();
+        _title.Click += (_, _) => OpenTranscript();
+        detail.Click += (_, _) => OpenTranscript();
+        accent.Click += (_, _) => OpenTranscript();
+        Click += (_, _) => OpenTranscript();
+
+        Controls.Add(open);
+        Controls.Add(ignore);
+        Controls.Add(detail);
+        Controls.Add(_title);
+        Controls.Add(accent);
+        Shown += (_, _) => PositionAndRound();
+    }
+
+    private static Button CardButton(string text, int x, int y, Color color) => new()
+    {
+        Text = text,
+        Location = new Point(x, y),
+        FlatStyle = FlatStyle.Flat,
+        BackColor = color,
+        ForeColor = Color.White,
+        Cursor = Cursors.Hand,
+        TabStop = true,
+        FlatAppearance = { BorderSize = 0 },
+    };
+
+    private void OpenTranscript()
+    {
+        _view(AnnouncementId, _sourceLabel);
+        Close();
+    }
+
+    public void MarkEnded()
+    {
+        _title.Text = "Announcement ended — view transcript";
+        AccessibleName = $"Announcement ended from {_sourceLabel}; view transcript";
+    }
+
+    public void MarkTranscriptReady()
+    {
+        _title.Text = "Transcript ready — click to view";
+        AccessibleName = $"Transcript ready from {_sourceLabel}; click to view";
+    }
+
+    private void PositionAndRound()
+    {
+        var work = Screen.FromPoint(Cursor.Position).WorkingArea;
+        Location = new Point(work.Right - Width - 14, work.Bottom - Height - 14);
+        using var shape = new GraphicsPath();
+        const int radius = 16;
+        shape.AddArc(0, 0, radius, radius, 180, 90);
+        shape.AddArc(Width - radius, 0, radius, radius, 270, 90);
+        shape.AddArc(Width - radius, Height - radius, radius, radius, 0, 90);
+        shape.AddArc(0, Height - radius, radius, radius, 90, 90);
+        shape.CloseFigure();
+        Region = new Region(shape);
+    }
+
+    protected override bool ShowWithoutActivation => true;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            cp.ExStyle |= WsExNoActivate | WsExToolWindow;
+            return cp;
+        }
+    }
+}
+
+/// One window for the lifetime of an announcement. Live partials replace the body in place; the
+/// final history item then changes the same window to the completed transcript.
+internal sealed class TranscriptForm : Form
+{
+    private readonly Label _heading;
+    private readonly Label _status;
+    private readonly TextBox _text;
+    private bool _ended;
+
+    public string AnnouncementId { get; }
+
+    public TranscriptForm(string announcementId, string sourceLabel)
+    {
+        AnnouncementId = announcementId;
+        Text = "SchoolBell — announcement transcript";
+        Width = 720;
+        Height = 470;
+        MinimumSize = new Size(480, 300);
+        StartPosition = FormStartPosition.CenterScreen;
+        Font = new Font("Segoe UI", 10f);
+        ShowInTaskbar = true;
+
+        _heading = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 42,
+            Padding = new Padding(12, 12, 12, 0),
+            Font = new Font("Segoe UI Semibold", 12f, FontStyle.Bold),
+            Text = string.IsNullOrWhiteSpace(sourceLabel) ? "Office announcement" : sourceLabel,
+        };
+        _status = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 34,
+            Padding = new Padding(12, 2, 12, 8),
+            ForeColor = Color.FromArgb(74, 85, 104),
+            Text = "Live transcription is starting…",
+            AccessibleName = "Transcript status",
+        };
+        _text = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            BorderStyle = BorderStyle.FixedSingle,
+            BackColor = Color.White,
+            Font = new Font("Segoe UI", 11f),
+            Margin = new Padding(12),
+            Text = "Listening for speech…",
+            AccessibleName = "Announcement transcript",
+        };
+        var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 2, 12, 12) };
+        body.Controls.Add(_text);
+        Controls.Add(body);
+        Controls.Add(_status);
+        Controls.Add(_heading);
+    }
+
+    public void MarkEnded()
+    {
+        _ended = true;
+        _status.Text = "Announcement ended · preparing final transcript…";
+    }
+
+    public void Apply(PipeAnnTranscript update)
+    {
+        if (update.AnnouncementId != AnnouncementId) return;
+        if (!update.Schoolwide)
+        {
+            _status.Text = _ended ? "Announcement ended" : "Announcement in progress";
+            _text.Text = "This was a targeted announcement. Its transcript is available only in the office.";
+            return;
+        }
+        _status.Text = _ended ? "Announcement ended · preparing final transcript…" : "Live transcript · updates automatically";
+        if (!string.IsNullOrWhiteSpace(update.Text))
+        {
+            _text.Text = update.Text;
+            _text.SelectionStart = _text.TextLength;
+            _text.ScrollToCaret();
+        }
+    }
+
+    public void Apply(HistoryItemPayload item)
+    {
+        if (item.AnnouncementId != AnnouncementId) return;
+        _ended = true;
+        if (!item.Schoolwide)
+        {
+            _status.Text = "Announcement ended";
+            _text.Text = "This was a targeted announcement. Its transcript is available only in the office.";
+            return;
+        }
+        switch (item.TranscriptStatus)
+        {
+            case "done":
+                _status.Text = item.Corrected ? "Completed transcript · corrected by the office" : "Completed transcript";
+                _text.Text = item.Text ?? "[No speech detected]";
+                break;
+            case "failed":
+                _status.Text = "Announcement ended";
+                _text.Text = "The transcript could not be completed.";
+                break;
+            default:
+                _status.Text = "Announcement ended · preparing final transcript…";
+                if (string.IsNullOrWhiteSpace(_text.Text) || _text.Text == "Listening for speech…")
+                    _text.Text = "The final transcript will appear here automatically.";
+                break;
+        }
     }
 }
 

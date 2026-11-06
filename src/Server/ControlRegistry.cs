@@ -32,6 +32,7 @@ public sealed class ControlConnection
     /// Largest message this device accepts (from auth.response; 32 KB for clients before 0.9.5).
     public int MaxMessageBytes { get; init; } = Protocol.MaxControlMessageBytes;
     public string? ClientVersion { get; init; }
+    public IReadOnlySet<string> Capabilities { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     public long LastSeenMs => Volatile.Read(ref _lastSeenMs);
     public bool Closing { get; private set; }
 
@@ -46,6 +47,7 @@ public sealed class ControlConnection
 
     /// True when the message fits this device's advertised limit.
     public bool Fits(string json) => System.Text.Encoding.UTF8.GetByteCount(json) <= MaxMessageBytes;
+    public bool Supports(string capability) => Capabilities.Contains(capability);
 
     public void SendRaw(string json)
     {

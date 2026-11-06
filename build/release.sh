@@ -64,6 +64,9 @@ dotnet publish src/Server/Server.csproj -c Release -r linux-x64 --self-contained
 cp -r web/dist "$SRV/app/wwwroot"
 rm -rf "$SRV/app/config" "$SRV/app/appsettings.Development.json"
 
+step "whisper.cpp v1.9.5 (portable CPU build, small.en model)"
+bash build/whisper.sh "$SRV/whisper" >>"$LOG" 2>&1
+
 step "Windows client (win-x64, self-contained)"
 WIN=$STAGE/windows
 for p in src/Client.Service/Client.Service.csproj tools/EnrollTool/EnrollTool.csproj src/Client.Desktop/Client.Desktop.csproj; do

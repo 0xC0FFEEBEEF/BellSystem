@@ -375,6 +375,12 @@ public sealed class PipeServerHost : IDisposable
     public void BroadcastSettings() { foreach (var s in Snapshot()) SendSettings(s); }
     public void BroadcastHistory() { foreach (var s in Snapshot()) SendHistory(s); }
     public void BroadcastState() { foreach (var s in Snapshot()) SendState(s); }
+    public void BroadcastTranscript(AnnouncementTranscriptPayload update)
+    {
+        var pipeUpdate = new PipeAnnTranscript(update.AnnouncementId, update.Status, update.Schoolwide,
+            update.Schoolwide ? update.Text : null, update.At);
+        foreach (var s in Snapshot()) WriteLine(s, PipeProtocol.TAnnTranscript, pipeUpdate);
+    }
 
     private void SendSettings(Session s)
     {

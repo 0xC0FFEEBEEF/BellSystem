@@ -23,6 +23,10 @@ internal sealed class ServicePipeClient : IDisposable
     private readonly string _localRecoveryPath;
 
     public event Action? Changed;
+    public event Action<PipeBellPlay>? BellPlaying;
+    public event Action<PipeAnnStart>? AnnouncementStarted;
+    public event Action<PipeAnnEnd>? AnnouncementEnded;
+    public event Action<PipeAnnTranscript>? TranscriptUpdated;
     public bool PipeConnected { get; private set; }
     public string Slot { get; private set; } = "none";
     public PipeServiceState? ServiceState { get; private set; }
@@ -116,12 +120,15 @@ internal sealed class ServicePipeClient : IDisposable
             case PipeProtocol.TBellPlay:
                 var play = msg.PayloadAs<PipeBellPlay>();
                 if (play is null) return;
+                BellPlaying?.Invoke(play);
                 _ = Task.Run(() => PlayBellAsync(play));
                 break;
 
             case PipeProtocol.TAnnStart:
                 var start = msg.PayloadAs<PipeAnnStart>();
-                if (start is null || _engine is null) return;
+                if (start is null) return;
+                AnnouncementStarted?.Invoke(start);
+                if (_engine is null) return;
                 var (started, reason) = _engine.StartAnnouncement(start);
                 LastEvent = started ? $"Announcement: {start.SourceLabel}" : $"Announcement could not play ({reason})";
                 Changed?.Invoke();
@@ -137,6 +144,13 @@ internal sealed class ServicePipeClient : IDisposable
                 var end = msg.PayloadAs<PipeAnnEnd>();
                 if (end is null) return;
                 _engine?.EndAnnouncement(end.AnnouncementId);
+                AnnouncementEnded?.Invoke(end);
+                break;
+
+            case PipeProtocol.TAnnTranscript:
+                var transcript = msg.PayloadAs<PipeAnnTranscript>();
+                if (transcript is null) return;
+                TranscriptUpdated?.Invoke(transcript);
                 break;
 
             case PipeProtocol.TManifestState:

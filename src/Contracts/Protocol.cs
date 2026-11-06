@@ -56,6 +56,7 @@ public static class Protocol
     public const string TBellRing = "bell.ring";              // server -> device: ring now
     public const string TDeviceSettings = "device.settings";  // server -> device: output, volume, groups
     public const string THistoryItem = "history.item";        // server -> device: tray history entry
+    public const string TAnnouncementTranscript = "announcement.transcript"; // server -> device: live partial transcript
     public const string TUpdateOffer = "update.offer";        // server -> device: signed client update
     public const string TUpdateStatus = "update.status";      // device -> server: update progress
 

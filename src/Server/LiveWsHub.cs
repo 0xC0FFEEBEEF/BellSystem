@@ -23,14 +23,16 @@ public sealed class LiveWsHub
     private readonly MediaRouter _media;
     private readonly TalkLeaseService _leases;
     private readonly LiveMetrics _metrics;
+    private readonly LiveTranscriptionService _transcription;
     private readonly ILogger<LiveWsHub> _log;
 
     public LiveWsHub(ServerConfig cfg, LiveSettings settings, TimeProvider time,
         AnnouncementsService announcements, MediaRouter media, TalkLeaseService leases, LiveMetrics metrics,
+        LiveTranscriptionService transcription,
         ILogger<LiveWsHub> log)
     {
         _cfg = cfg; _settings = settings; _time = time; _announcements = announcements;
-        _media = media; _leases = leases; _metrics = metrics; _log = log;
+        _media = media; _leases = leases; _metrics = metrics; _transcription = transcription; _log = log;
     }
 
     private long NowMs => _time.GetUtcNow().ToUnixTimeMilliseconds();
@@ -134,6 +136,7 @@ public sealed class LiveWsHub
         var guard = new FrameRateGuard(_settings.MicFramesPerS, _settings.MicBurstS, NowMs);
         long framesAccepted = 0, framesDropped = 0;
         string closeReason = "closed";
+        _transcription.Start(announcementId);
 
         try
         {
@@ -183,6 +186,7 @@ public sealed class LiveWsHub
                 }
 
                 writer.Write(frame.Value.Pcm.Span);
+                _transcription.Append(announcementId, frame.Value.Pcm.Span);
                 _media.Broadcast(announcementId, frame.Value.Pcm, frame.Value.CaptureTsMs);
                 framesAccepted++;
             }
@@ -191,6 +195,7 @@ public sealed class LiveWsHub
         {
             _metrics.MicDisconnected();
             _media.UnregisterMic(announcementId, mic);
+            _transcription.Complete(announcementId);
 
             var final = writer.Finalize();
             _announcements.StoreRecording(announcementId, final, path);

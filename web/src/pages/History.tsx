@@ -132,7 +132,7 @@ function Item({ a, reload }: { a: any; reload: () => void }) {
         <div className="transcript">
           <p><b>Transcript</b> ({t.status}{t.corrected_by ? `, corrected by ${t.corrected_by}` : ""})</p>
           {t.original && t.corrected_by && <p className="dim">Automatic: {t.original}</p>}
-          {text === null ? <p>{t.current ?? <span className="dim">No transcript text (transcription is off for this pilot).</span>}</p>
+          {text === null ? <p>{t.current ?? <span className="dim">The transcript is pending or unavailable.</span>}</p>
             : <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} aria-label="Corrected transcript" />}
           {me.role !== "viewer" && (text === null
             ? <button onClick={() => setText(t.current ?? "")}>Correct transcript</button>

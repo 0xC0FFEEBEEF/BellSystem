@@ -53,23 +53,22 @@ public sealed class AnnouncementSweeperHost : BackgroundService
 
 /// The transcription pipeline is real up to the engine boundary: on announcement completion a
 /// durable transcript_jobs row is queued (max 5 attempts) and a transcript row starts as `pending`.
-/// No transcript text is ever invented here. The worker only runs when BOTH
-/// settings.transcription_enabled is true AND an engine is registered; milestone S2 ships no engine
-/// (whisper.cpp consumer is milestone S3), so jobs stay queued and this logs once.
+/// No transcript text is ever invented here. The worker only runs when transcription is enabled
+/// and the bundled loopback whisper.cpp service is available; otherwise jobs remain queued.
 public interface ITranscriptionEngine
 {
     string Name { get; }
     bool Available { get; }
     Task<bool> IsAvailableAsync(CancellationToken ct) => Task.FromResult(Available);
-    Task<string?> TranscribeAsync(string wavPath, CancellationToken ct);
+    Task<string?> TranscribeAsync(ReadOnlyMemory<byte> wav, CancellationToken ct);
 }
 
-/// The S2 default: no engine. Available=false keeps every job queued.
+/// Test/fallback engine. Available=false keeps every job queued.
 public sealed class NoTranscriptionEngine : ITranscriptionEngine
 {
     public string Name => "none";
     public bool Available => false;
-    public Task<string?> TranscribeAsync(string wavPath, CancellationToken ct) => Task.FromResult<string?>(null);
+    public Task<string?> TranscribeAsync(ReadOnlyMemory<byte> wav, CancellationToken ct) => Task.FromResult<string?>(null);
 }
 
 public sealed class TranscriptionWorkerHost : BackgroundService
@@ -118,7 +117,8 @@ public sealed class TranscriptionWorkerHost : BackgroundService
                 try
                 {
                     if (path is null) throw new InvalidOperationException("the announcement has no stored recording");
-                    text = await _engine.TranscribeAsync(path, ct);
+                    var wav = await File.ReadAllBytesAsync(path, ct);
+                    text = await _engine.TranscribeAsync(wav, ct);
                     if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("the engine returned no transcript text");
                 }
                 catch (OperationCanceledException) { throw; }

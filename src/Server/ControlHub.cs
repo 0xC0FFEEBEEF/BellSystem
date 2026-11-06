@@ -147,6 +147,10 @@ public sealed class ControlHub
         {
             MaxMessageBytes = maxBytes,
             ClientVersion = resp.ClientVersion is { Length: > 0 and <= 64 } v2 ? v2 : null,
+            Capabilities = (resp.Capabilities ?? [])
+                .Where(c => c is { Length: > 0 and <= 64 })
+                .Take(20)
+                .ToHashSet(StringComparer.Ordinal),
         };
         if (_registry.Register(wconn) is null)
         {

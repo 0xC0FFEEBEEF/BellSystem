@@ -47,11 +47,14 @@ public sealed partial class DeviceAgent
             Protocol.TBellRing => HandleBellRing(env, ct),
             Protocol.TDeviceSettings => HandleDeviceSettings(env),
             Protocol.THistoryItem => HandleHistoryItem(env),
+            Protocol.TAnnouncementTranscript => HandleAnnouncementTranscript(env),
             Protocol.TUpdateOffer => HandleUpdateOffer(env, ct),
             _ => UnknownEvent(env),
         };
 
-        if (processed && !string.IsNullOrEmpty(env.EventId))
+        // Live transcript partials are deliberately ephemeral (not in the durable outbox), so
+        // they must not become the resync cursor. Final text arrives as a durable history.item.
+        if (processed && env.Type != Protocol.TAnnouncementTranscript && !string.IsNullOrEmpty(env.EventId))
         {
             Cursor.Advance(env.EventId);
             _processedEventIds.Add(env.EventId!);

@@ -81,6 +81,11 @@ if [ "$MODE" = rollback ]; then
     cp -a "$BK"/schoolbell.db* "$VAR/"
   fi
   ln -sfn "releases/$PREV" "$PREFIX/current.new" && mv -Tf "$PREFIX/current.new" "$PREFIX/current"
+  if [ -x "$PREFIX/current/whisper/bin/whisper-server" ]; then
+    systemctl restart schoolbell-whisper
+  else
+    systemctl stop schoolbell-whisper 2>/dev/null || true
+  fi
   systemctl start schoolbell
   health http://127.0.0.1:5001/api/health "$PREV" 90 >/dev/null || die "rollback started but $PREV is not answering — journalctl -u schoolbell"
   say "rolled back to $PREV"
@@ -88,6 +93,8 @@ if [ "$MODE" = rollback ]; then
 fi
 
 [ -x "$HERE/app/SchoolBell.Server" ] || die "bundle incomplete: $HERE/app/SchoolBell.Server missing"
+[ -x "$HERE/whisper/bin/whisper-server" ] || die "bundle incomplete: Whisper server missing"
+[ -f "$HERE/whisper/models/ggml-small.en.bin" ] || die "bundle incomplete: Whisper small.en model missing"
 FROM=$(current_version)
 say "SchoolBell $VERSION ($([ -n "$FROM" ] && echo "upgrade from $FROM" || echo "new install"))"
 
@@ -132,6 +139,8 @@ SchoolBell__Urls=http://127.0.0.1:5001
 SchoolBell__DataDir=$VAR
 SchoolBell__ReleaseKeyPath=$ETC/release-signing.pub.pem
 SchoolBell__UpdateRepo=0xC0FFEEBEEF/BellSystem
+SchoolBell__TranscriptionEnabled=true
+SchoolBell__WhisperUrl=http://127.0.0.1:8178
 # SchoolBell__MaxConnections=1000      (visible, configurable; not an enrollment limit)
 # SchoolBell__OutboxCap=500
 EOF
@@ -139,6 +148,10 @@ fi
 setenv() { # key value
   if grep -q "^$1=" "$ENVF"; then sed -i "s|^$1=.*|$1=$2|" "$ENVF"; else echo "$1=$2" >> "$ENVF"; fi
 }
+# New and upgraded servers get local transcription unless an administrator already made an
+# explicit choice in the environment file.
+grep -q '^SchoolBell__TranscriptionEnabled=' "$ENVF" || echo 'SchoolBell__TranscriptionEnabled=true' >> "$ENVF"
+grep -q '^SchoolBell__WhisperUrl=' "$ENVF" || echo 'SchoolBell__WhisperUrl=http://127.0.0.1:8178' >> "$ENVF"
 if [ -n "$TZ_ARG" ]; then
   [ -f "/usr/share/zoneinfo/$TZ_ARG" ] || die "unknown timezone '$TZ_ARG' (use an IANA name like America/Chicago)"
   setenv SchoolBell__SchoolTz "$TZ_ARG"
@@ -166,7 +179,7 @@ runuser -u schoolbell-proxy -- env HOME="$PROXYVAR" XDG_DATA_HOME="$PROXYVAR" XD
 mv -f "$ETC/Caddyfile.new" "$ETC/Caddyfile"; chmod 0644 "$ETC/Caddyfile"
 
 say "systemd units"
-for u in schoolbell.service schoolbell-caddy.service schoolbell-update.service schoolbell-update.path; do
+for u in schoolbell.service schoolbell-whisper.service schoolbell-caddy.service schoolbell-update.service schoolbell-update.path; do
   install -m 0644 "$HERE/systemd/$u" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
@@ -176,7 +189,17 @@ ln -sfn "releases/$VERSION" "$PREFIX/current.new" && mv -Tf "$PREFIX/current.new
 [ -n "$FROM" ] && [ "$FROM" != "$VERSION" ] && { mv -f "$PREFIX/previous.tmp" "$PREFIX/previous"; mv -f "$PREFIX/previous-backup.tmp" "$PREFIX/previous-backup"; }
 rm -f "$PREFIX/previous.tmp" "$PREFIX/previous-backup.tmp"
 
-systemctl enable schoolbell schoolbell-caddy schoolbell-update.path >/dev/null 2>&1
+systemctl enable schoolbell schoolbell-whisper schoolbell-caddy schoolbell-update.path >/dev/null 2>&1
+systemctl restart schoolbell-whisper
+WHISPER_OK=no
+for _ in $(seq 1 90); do
+  if curl -sf --max-time 2 http://127.0.0.1:8178/ >/dev/null; then WHISPER_OK=yes; break; fi
+  sleep 1
+done
+if [ "$WHISPER_OK" != yes ]; then
+  journalctl -u schoolbell-whisper -n 30 --no-pager >&2 || true
+  die "the local Whisper service did not become ready"
+fi
 systemctl restart schoolbell
 say "health check"
 if ! GOT=$(health http://127.0.0.1:5001/api/health "$VERSION" 120); then
@@ -213,7 +236,8 @@ cat <<EOF
 
 == SchoolBell $GOT is running.
    Office:   $(printf 'https://%s/  ' "${NAMES[@]}")   (HTTPS check from this server: $HTTPS_OK)
-   Services: systemctl status schoolbell schoolbell-caddy   ·  logs: journalctl -u schoolbell -f
+   Services: systemctl status schoolbell schoolbell-whisper schoolbell-caddy
+   Logs:     journalctl -u schoolbell -f   ·   journalctl -u schoolbell-whisper -f
 $( [ -f "$ETC/school-ca.cer" ] && echo "   Windows clients must trust: $ETC/school-ca.cer   (give it to SchoolBellSetup.exe --ca-file)" )
 $( [ -n "$CODE" ] && echo "   First sign-in: open the office address, choose 'First-time setup' and enter setup code $CODE" )
    Then in /admin: check the school timezone, create an enrollment file, build and publish schedules.

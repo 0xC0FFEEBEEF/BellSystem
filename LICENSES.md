@@ -12,7 +12,7 @@ SchoolBell's own code: GNU General Public License v3.0 or later (`GPL-3.0-or-lat
 | SQLite (via SQLitePCLRaw bundle_e_sqlite3) | bundled | Public domain (SQLite) / Apache-2.0 (wrapper) | server |
 | Caddy | 2.11.7 | Apache-2.0 | server bundle `bin/caddy` (+ `caddy.LICENSE`) |
 | Inno Setup (installer engine stub inside SchoolBellSetup.exe) | 6.7.3 | Inno Setup License (free, incl. commercial) | Windows installer |
-| whisper.cpp + small.en model | not shipped in this pilot | MIT (code) / MIT (model) | — (transcription omitted for now) |
+| whisper.cpp + small.en model | 1.9.5 / small.en | MIT (code) / MIT (model) | server bundle `whisper/` (+ `LICENSE.whisper.cpp`) |
 
 ## NuGet packages (resolved)
 

@@ -134,6 +134,21 @@ public sealed partial class AnnouncementsService
         foreach (var (deviceId, _) in SnapshotDevices(announcementId)) _outbox.Enqueue(deviceId, env);
     }
 
+    /// Best-effort live partial to connected members of the frozen audience. This intentionally
+    /// bypasses the durable outbox: partial text is useful only while the announcement is live.
+    public void PushLiveTranscript(string announcementId, string? text, string status)
+    {
+        var ann = Read(announcementId);
+        if (ann is null || !ann.IsLive) return;
+        bool schoolwide = ann.Target.All == true;
+        var payload = new AnnouncementTranscriptPayload(announcementId, status, schoolwide,
+            schoolwide && text is { Length: > 0 } ? (text.Length > 8000 ? text[..8000] : text) : null, NowMs);
+        var env = ControlEnvelope.Create(Protocol.TAnnouncementTranscript, PayloadSerializer.Node(payload));
+        foreach (var (deviceId, _) in SnapshotDevices(announcementId))
+            if (_registry.Lookup(deviceId) is { } connection && connection.Supports("live_transcript"))
+                connection.Send(env);
+    }
+
     /// Replay filter for rings: an expired ring is never replayed (the device would record it
     /// expired anyway); the result is marked expired for an offline device.
     private bool RingReplayOk(string deviceId, ControlEnvelope env)

@@ -32,16 +32,15 @@ public sealed class WhisperCppEngine : ITranscriptionEngine
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException) { return false; }
     }
 
-    public async Task<string?> TranscribeAsync(string wavPath, CancellationToken ct)
+    public async Task<string?> TranscribeAsync(ReadOnlyMemory<byte> wav, CancellationToken ct)
     {
-        var bytes = await File.ReadAllBytesAsync(wavPath, ct);
-        if (IsSilent(bytes))
+        if (IsSilent(wav.Span))
         {
-            _log.LogInformation("recording {Path} is silent; skipping inference", Path.GetFileName(wavPath));
+            _log.LogInformation("recording is silent; skipping whisper inference");
             return "[no speech detected]";
         }
         using var form = new MultipartFormDataContent();
-        var file = new ByteArrayContent(bytes);
+        var file = new ByteArrayContent(wav.ToArray());
         file.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
         form.Add(file, "file", "announcement.wav");
         form.Add(new StringContent("0.0"), "temperature");
@@ -57,7 +56,7 @@ public sealed class WhisperCppEngine : ITranscriptionEngine
     }
 
     /// Peak below -50 dBFS over a 16-bit mono WAV body = silence.
-    private static bool IsSilent(byte[] wav)
+    private static bool IsSilent(ReadOnlySpan<byte> wav)
     {
         if (wav.Length <= 44) return true;
         int peak = 0;

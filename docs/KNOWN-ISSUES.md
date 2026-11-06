@@ -36,8 +36,9 @@ Current as of release 0.9.9. `HANDOFF.md` §5 lists what was verified and how.
 11. **Not yet tested on Windows:** keep-awake, a scheduled bell firing on a real classroom PC (ring-now
     uses the same playback path), and output changes on real hardware (headphones, HDMI, RDP, fast user
     switching).
-12. **Transcription is off.** The Whisper adapter and job queue exist (`transcription_enabled=false`) but
-    no engine ships with the release.
+12. **Transcripts are machine generated.** The bundled local Whisper `small.en` model is English-only
+    and can mishear names, room numbers and speech over noisy microphones. The office can correct the
+    final transcript; the original is retained. Live partials may lag on slower server CPUs.
 13. **Daylight saving.** Bell times that do not exist on the change day are skipped (logged in the
     publish report); ambiguous times ring once, at the first occurrence. Encode anything else as a date
     override.

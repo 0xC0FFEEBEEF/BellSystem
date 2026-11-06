@@ -49,13 +49,15 @@ Connect, then handshake within 10 s:
 { "v":1, "type":"auth.response", "payload": {
     "device_id": "...", "client_version": "...",
     "proof": hex(HMAC-SHA256(device_secret, nonce + device_id)),
-    "max_message_bytes": 1048576 } }                      // optional, since 0.9.5
+    "max_message_bytes": 1048576,
+    "capabilities": ["live_transcript"] } }              // optional additive fields
 { "v":1, "type":"auth.ok", "payload": { "server_time": 1793700000000 } }
 ```
 
 `max_message_bytes` is the largest server message the device accepts. A device that omits it
 (clients up to 0.9.4) is held to 32 KB: the server never sends it a larger message (it stays in
 the outbox) and the office UI shows that computer as needing a client update.
+`capabilities` opts into ephemeral extensions that older clients cannot safely consume.
 
 Then the device sends a resync header (durable, from local storage):
 
@@ -286,6 +288,15 @@ closes the connection. Fixtures: see `tests/Server.Tests` and `tests/Client.Test
 - Sent when an announcement ends and again when its transcript completes or is corrected.
 - `text` is present only for schoolwide announcements; targeted items carry no text (office-only).
   Devices also drop targeted items when the console user changes.
+
+### announcement.transcript (server → device, ephemeral)
+`{ announcement_id, status: starting|live, schoolwide, text|null, at }`
+- Best-effort partial text sent only to connected members of the frozen audience while a live
+  announcement is active. It is not written to the durable outbox and devices must not advance
+  their resync cursor for it; `history.item` remains the durable final transcript.
+- `text` is present only for schoolwide announcements. Targeted transcript text remains office-only.
+- The server sends this message only when `auth.response.capabilities` includes `live_transcript`;
+  older clients therefore cannot mistake an ephemeral event for their durable resync cursor.
 
 ### update.offer (server → device) / update.status (device → server)
 ```json

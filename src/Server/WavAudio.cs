@@ -112,6 +112,28 @@ public static class Wav
     public static readonly int[] AcceptedSampleRates = [16000, 44100, 48000];
     public const int TargetSampleRate = 16000;
 
+    /// Wrap raw mono signed 16-bit PCM in a complete in-memory WAV. Live transcription uses a
+    /// snapshot so it never reads the still-open recording file.
+    public static byte[] Mono16Bytes(ReadOnlySpan<byte> pcmLe, int sampleRate = TargetSampleRate)
+    {
+        if (pcmLe.Length % 2 != 0) throw new ArgumentException("partial sample in PCM data");
+        var wav = new byte[44 + pcmLe.Length];
+        "RIFF"u8.CopyTo(wav.AsSpan(0, 4));
+        BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(4, 4), (uint)(36 + pcmLe.Length));
+        "WAVEfmt "u8.CopyTo(wav.AsSpan(8, 8));
+        BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(16, 4), 16);
+        BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(20, 2), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(22, 2), 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(24, 4), (uint)sampleRate);
+        BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(28, 4), (uint)(sampleRate * 2));
+        BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(32, 2), 2);
+        BinaryPrimitives.WriteUInt16LittleEndian(wav.AsSpan(34, 2), 16);
+        "data"u8.CopyTo(wav.AsSpan(36, 4));
+        BinaryPrimitives.WriteUInt32LittleEndian(wav.AsSpan(40, 4), (uint)pcmLe.Length);
+        pcmLe.CopyTo(wav.AsSpan(44));
+        return wav;
+    }
+
     /// Parse the RIFF chunk chain from a whole file. Null for anything that is not a canonical
     /// PCM WAV. Extra chunks (LIST/INFO/fact) are skipped; a missing data chunk is not a recording.
     /// The reported data size is clamped to what the buffer actually holds, so a lying header

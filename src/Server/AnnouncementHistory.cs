@@ -230,8 +230,10 @@ public sealed partial class AnnouncementsService
         return new
         {
             transcription_enabled = _settings.TranscriptionEnabled,
-            engine = "none",
-            note = "whisper.cpp adapter (loopback, small.en) is present but transcription is OFF for this pilot and was not tested; jobs stay queued and nothing is faked",
+            engine = "whisper.cpp / small.en (local server)",
+            note = _settings.TranscriptionEnabled
+                ? "Local transcription is on. Playback never waits for it; failed work is retried by the durable queue."
+                : "Transcription was disabled by the administrator; jobs stay queued and no transcript is faked.",
             jobs = new
             {
                 queued = counts.GetValueOrDefault("queued"),

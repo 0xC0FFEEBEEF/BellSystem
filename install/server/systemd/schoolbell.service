@@ -1,8 +1,8 @@
 [Unit]
 Description=SchoolBell server (bells and announcements)
 Documentation=file:///opt/schoolbell/current/OPERATIONS.md
-After=network-online.target
-Wants=network-online.target
+After=network-online.target schoolbell-whisper.service
+Wants=network-online.target schoolbell-whisper.service
 
 [Service]
 User=schoolbell

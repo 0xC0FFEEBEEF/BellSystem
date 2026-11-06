@@ -50,7 +50,8 @@ public static class PayloadSerializer
 public sealed record AuthChallengePayload(string Nonce);
 /// MaxMessageBytes (added in 0.9.5): the largest server message this device accepts. Absent on
 /// older clients, which the server then holds to Protocol.MaxControlMessageBytes.
-public sealed record AuthResponsePayload(string DeviceId, string ClientVersion, string Proof, int? MaxMessageBytes = null);
+public sealed record AuthResponsePayload(string DeviceId, string ClientVersion, string Proof,
+    int? MaxMessageBytes = null, List<string>? Capabilities = null);
 public sealed record AuthOkPayload(long ServerTime);
 
 public sealed record QueuedReceipt(string OccurrenceOrAnnouncementId, string State, long At, string? ErrorCode);
@@ -163,6 +164,12 @@ public sealed record DeviceSettingsPayload(
 public sealed record HistoryItemPayload(
     string AnnouncementId, long At, string Kind, string SourceLabel, bool Schoolwide,
     string TranscriptStatus, string? Text, bool Corrected);
+
+/// Ephemeral live transcript update. It is sent only to the frozen audience while the
+/// announcement is active and is not placed in the durable outbox. Text is present only for
+/// schoolwide announcements; targeted transcript text remains office-only.
+public sealed record AnnouncementTranscriptPayload(
+    string AnnouncementId, string Status, bool Schoolwide, string? Text, long At);
 
 /// Signed client update. `ReleaseManifest` is the exact release-manifest.json text and
 /// `ReleaseSignature` its base64 DER ECDSA-P256-SHA256 signature by the publisher key pinned at
