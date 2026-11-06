@@ -334,7 +334,7 @@ internal sealed class AnnouncementNotificationForm : Form
         StartPosition = FormStartPosition.Manual;
         BackColor = Color.FromArgb(31, 35, 43);
         ForeColor = Color.White;
-        ClientSize = new Size(370, 132);
+        ClientSize = new Size(390, 128);
         Font = new Font("Segoe UI", 9.5f);
         AccessibleName = $"Announcement from {_sourceLabel}";
 
@@ -345,7 +345,7 @@ internal sealed class AnnouncementNotificationForm : Form
             Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold),
             ForeColor = Color.White,
             Location = new Point(22, 13),
-            Size = new Size(325, 23),
+            Size = new Size(345, 23),
         };
         var detail = new Label
         {
@@ -353,12 +353,12 @@ internal sealed class AnnouncementNotificationForm : Form
             Text = _sourceLabel,
             ForeColor = Color.FromArgb(218, 223, 232),
             Location = new Point(22, 38),
-            Size = new Size(325, 24),
+            Size = new Size(345, 24),
         };
-        var ignore = CardButton("Ignore", 190, 82, Color.FromArgb(58, 64, 75));
-        var open = CardButton("View transcript", 262, 82, Color.FromArgb(69, 108, 232));
-        ignore.Size = new Size(64, 32);
-        open.Size = new Size(90, 32);
+        var ignore = CardButton("Ignore", 171, 77, 72, Color.FromArgb(55, 62, 74));
+        var open = CardButton("View transcript", 255, 77, 116, Color.FromArgb(73, 105, 224));
+        RoundControl(ignore, 10);
+        RoundControl(open, 10);
         ignore.Click += (_, _) => Close();
         open.Click += (_, _) => OpenTranscript();
         _title.Click += (_, _) => OpenTranscript();
@@ -374,17 +374,30 @@ internal sealed class AnnouncementNotificationForm : Form
         Shown += (_, _) => PositionAndRound();
     }
 
-    private static Button CardButton(string text, int x, int y, Color color) => new()
+    private static Button CardButton(string text, int x, int y, int width, Color color) => new()
     {
         Text = text,
         Location = new Point(x, y),
+        Size = new Size(width, 34),
         FlatStyle = FlatStyle.Flat,
         BackColor = color,
         ForeColor = Color.White,
         Cursor = Cursors.Hand,
         TabStop = true,
+        UseCompatibleTextRendering = false,
         FlatAppearance = { BorderSize = 0 },
     };
+
+    private static void RoundControl(Control control, int radius)
+    {
+        using var shape = new GraphicsPath();
+        shape.AddArc(0, 0, radius, radius, 180, 90);
+        shape.AddArc(control.Width - radius, 0, radius, radius, 270, 90);
+        shape.AddArc(control.Width - radius, control.Height - radius, radius, radius, 0, 90);
+        shape.AddArc(0, control.Height - radius, radius, radius, 90, 90);
+        shape.CloseFigure();
+        control.Region = new Region(shape);
+    }
 
     private void OpenTranscript()
     {
@@ -409,7 +422,7 @@ internal sealed class AnnouncementNotificationForm : Form
         var work = Screen.FromPoint(Cursor.Position).WorkingArea;
         Location = new Point(work.Right - Width - 14, work.Bottom - Height - 14);
         using var shape = new GraphicsPath();
-        const int radius = 16;
+        const int radius = 20;
         shape.AddArc(0, 0, radius, radius, 180, 90);
         shape.AddArc(Width - radius, 0, radius, radius, 270, 90);
         shape.AddArc(Width - radius, Height - radius, radius, radius, 0, 90);
