@@ -131,11 +131,11 @@ function Item({ a, reload }: { a: any; reload: () => void }) {
       {t && (
         <div className="transcript">
           <p><b>Transcript</b> ({t.status}{t.corrected_by ? `, corrected by ${t.corrected_by}` : ""})</p>
-          {t.original && t.corrected_by && <p className="dim">Automatic: {t.original}</p>}
-          {text === null ? <p>{t.current ?? <span className="dim">The transcript is pending or unavailable.</span>}</p>
+          {t.transcript_original && t.corrected_by && <p className="dim">Automatic: {t.transcript_original}</p>}
+          {text === null ? <p>{t.transcript_current ?? <span className="dim">The transcript is pending or unavailable.</span>}</p>
             : <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} aria-label="Corrected transcript" />}
           {me.role !== "viewer" && (text === null
-            ? <button onClick={() => setText(t.current ?? "")}>Correct transcript</button>
+            ? <button onClick={() => setText(t.transcript_current ?? "")}>Correct transcript</button>
             : <><button className="primary" disabled={busy} onClick={() => run(async () => { await post(`/api/history/${a.announcement_id}/correct`, { text }); setText(null); detail.reload(); reload(); }, "Correction saved (original kept)")}>Save correction</button> <button onClick={() => setText(null)}>Cancel</button></>)}
         </div>)}
     </details>
