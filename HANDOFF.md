@@ -28,9 +28,9 @@ certified emergency notification system.
 | Item | State |
 |---|---|
 | GitHub | `0xC0FFEEBEEF/BellSystem`, **public**, branch `main`. Licence GPL-3.0-or-later. |
-| Published releases | v0.9.4 … v0.9.9, **v0.9.11** (latest, published 2026-11-06; v0.9.10 was superseded and removed before deployment). |
-| **v0.9.11** | Published from commit `ef390d9`; server bundle sha256 `65b8ebd3…e4ca6`, installer `9d1d7387…f60710`. |
-| School server | `rhsvoice.SCSD.local` (10.8.0.46), Ubuntu 24.04, school timezone America/Chicago. Reported **0.9.9** on 2026-11-05; 0.9.11 is published but not yet deployed. Admin account `scsd`. |
+| Published releases | v0.9.4 … v0.9.9, **v0.9.12** (latest, published 2026-11-06; v0.9.10–0.9.11 were superseded and removed). |
+| **v0.9.12** | Published from commit `9f86994`; server bundle sha256 `bbabe2d0…d5a4d`, installer `8f4a6aa1…13e3`. |
+| School server | `rhsvoice.SCSD.local` (10.8.0.46), Ubuntu 24.04, school timezone America/Chicago. Rolled back safely to **0.9.9** after the withdrawn 0.9.11 Whisper build failed; 0.9.12 is published but not yet deployed. Admin account `scsd`. |
 | School computers | Nearly all on client **0.9.8**. RJH-LAB on 0.9.7. **RHS-17141 (jennifer.massey) is broken**: its 0.9.7 update aborted and left the service stopped (repair in §5.4). |
 | Tests | 142 server + 73 client, all passing. The old fake-server cursor assertion race is fixed. |
 
@@ -50,11 +50,13 @@ certified emergency notification system.
 - Abrupt disconnects are logged as plain "disconnected" instead of an ERROR. Log times are in
   school time.
 
-**What v0.9.11 adds over v0.9.9:** persistent announcement notifications with View/Ignore, live
+**What v0.9.12 adds over v0.9.9:** persistent announcement notifications with View/Ignore, live
 schoolwide transcripts that become final in the same window, 12-second click-to-dismiss bell cards,
 and bundled local whisper.cpp `small.en` transcription. The notification card and buttons have
 rounded styling, and View transcript remains on one line. Past announcements do not create popups;
 older queued recordings can complete into History only. Targeted transcript text remains office-only.
+Whisper is built and runtime-tested against Ubuntu 24.04; the release gate rejects newer glibc
+requirements. A Whisper startup failure now rolls back the whole upgrade and stops its restart loop.
 
 ## 2. Repository and toolchain
 
@@ -97,7 +99,7 @@ cd /home/nbull/BellSystem && export PATH=$HOME/.dotnet:$PATH
 virsh -c qemu:///system start schoolbell-lab
 # wait until the guest agent answers:
 until virsh -c qemu:///system qemu-agent-command schoolbell-lab '{"execute":"guest-ping"}' >/dev/null 2>&1; do sleep 5; done; sleep 30
-bash build/release.sh 0.9.12 --iscc-vm schoolbell-lab     # next unused version; wipes and refills dist/
+bash build/release.sh 0.9.13 --iscc-vm schoolbell-lab     # next unused version; wipes and refills dist/
 virsh -c qemu:///system shutdown schoolbell-lab
 ```
 
@@ -113,15 +115,15 @@ virsh -c qemu:///system shutdown schoolbell-lab
 ```bash
 openssl dgst -sha256 -verify build/release-signing.pub.pem -signature <(base64 -d dist/release-manifest.json.sig) dist/release-manifest.json
 grep -E '"version"|"commit"' dist/release-manifest.json
-tar -xzOf dist/server/schoolbell-server-linux-x64.tar.gz schoolbell-0.9.12/app/client-release/release-manifest.json | grep '"version"'
+tar -xzOf dist/server/schoolbell-server-linux-x64.tar.gz schoolbell-0.9.13/app/client-release/release-manifest.json | grep '"version"'
 sha256sum dist/server/schoolbell-server-linux-x64.tar.gz dist/windows/SchoolBellSetup.exe
 ```
 
 **Publish** (only with the owner's go-ahead). Write release notes to a file, then:
 
 ```bash
-gh release create v0.9.12 -R 0xC0FFEEBEEF/BellSystem --target <commit from the manifest> \
-  --title "SchoolBell 0.9.12" --notes-file <notes.md> --latest \
+gh release create v0.9.13 -R 0xC0FFEEBEEF/BellSystem --target <commit from the manifest> \
+  --title "SchoolBell 0.9.13" --notes-file <notes.md> --latest \
   dist/server/schoolbell-server-linux-x64.tar.gz dist/server/install.sh dist/windows/SchoolBellSetup.exe \
   dist/release-manifest.json dist/release-manifest.json.sig dist/SHA256SUMS dist/LICENSES.md dist/LICENSE
 ```
@@ -132,7 +134,7 @@ gh release create v0.9.12 -R 0xC0FFEEBEEF/BellSystem --target <commit from the m
   `gh api repos/0xC0FFEEBEEF/BellSystem/releases/latest --jq '.assets[] | "\(.name) \(.digest)"'`.
 - Then update §1 of this file.
 
-**v0.9.11 is published** at `https://github.com/0xC0FFEEBEEF/BellSystem/releases/tag/v0.9.11`.
+**v0.9.12 is published** at `https://github.com/0xC0FFEEBEEF/BellSystem/releases/tag/v0.9.12`.
 The signed artifacts remain in `dist/`; that directory is gitignored and is wiped by the next
 `release.sh` run.
 
@@ -253,7 +255,7 @@ tests only · **NO** not done.
 | History (announcements, scheduled, manual, per-computer) | FIELD | |
 | Admin → Log | FIELD | |
 | Keep-awake | UNIT | not exercised on Windows |
-| Transcription (Whisper) | RELEASE | v0.9.11: local whisper.cpp `small.en`, live partials and durable final transcripts |
+| Transcription (Whisper) | RELEASE | v0.9.12: Ubuntu 24.04-compatible local whisper.cpp `small.en`, live partials and durable final transcripts |
 | Authenticode signing | NO | no certificate; SmartScreen may warn |
 | Load: 100 / 500 simulated endpoints | SIM | §9 |
 
@@ -261,7 +263,7 @@ tests only · **NO** not done.
 
 Full list in `docs/KNOWN-ISSUES.md`. The ones that matter most:
 
-1. Update the server to **0.9.11** from Admin, then roll out the matching 0.9.11 Windows client in batches.
+1. Update the server to **0.9.12** from Admin, then roll out the matching 0.9.12 Windows client in batches.
    **Repair RHS-17141 first** (§5.4): the updater on it is the old one.
 2. The update-runner fix only helps updates **from** 0.9.9 onwards, because each update is run by
    the runner already on the computer. Updating **to** 0.9.9 benefits from the installer's own new
