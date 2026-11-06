@@ -84,7 +84,8 @@ if [ "$MODE" = rollback ]; then
   if [ -x "$PREFIX/current/whisper/bin/whisper-server" ]; then
     systemctl restart schoolbell-whisper
   else
-    systemctl stop schoolbell-whisper 2>/dev/null || true
+    systemctl disable --now schoolbell-whisper 2>/dev/null || true
+    systemctl reset-failed schoolbell-whisper 2>/dev/null || true
   fi
   systemctl start schoolbell
   health http://127.0.0.1:5001/api/health "$PREV" 90 >/dev/null || die "rollback started but $PREV is not answering — journalctl -u schoolbell"
@@ -198,7 +199,12 @@ for _ in $(seq 1 90); do
 done
 if [ "$WHISPER_OK" != yes ]; then
   journalctl -u schoolbell-whisper -n 30 --no-pager >&2 || true
-  die "the local Whisper service did not become ready"
+  echo "ERROR: the local Whisper service did not become ready" >&2
+  if [ -n "$FROM" ] && [ "$FROM" != "$VERSION" ] && [ -d "$PREFIX/releases/$FROM" ]; then
+    echo "== automatic rollback to $FROM" >&2
+    bash "$0" --rollback || true
+  fi
+  exit 1
 fi
 systemctl restart schoolbell
 say "health check"
