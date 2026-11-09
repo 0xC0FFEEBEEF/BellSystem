@@ -170,7 +170,7 @@ public sealed class TranscriptionWorkerHost : BackgroundService
         {
             conn.Run("""
                 UPDATE transcripts SET transcript_original = $x, transcript_current = $x, status = 'completed',
-                       engine = $e, updated_at = $t
+                       engine = $e, corrected_by = NULL, corrected_at = NULL, purged = 0, updated_at = $t
                 WHERE announcement_id = $a
                 """, ("$x", text), ("$e", _engine.Name), ("$t", now), ("$a", announcementId));
             conn.Run("UPDATE transcript_jobs SET status = 'completed', last_error = NULL, updated_at = $t WHERE job_id = $j",

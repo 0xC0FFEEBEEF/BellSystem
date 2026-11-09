@@ -89,7 +89,9 @@ trust-on-first-use and no certificate bypass.
 - **History**: delivery results per announcement and bell, with honest final states and locally
   generated transcripts. During a live schoolwide announcement, classroom notifications can open a
   live transcript; the same window changes to the final transcript after the announcement. Targeted
-  transcript text stays office-only.
+  transcript text stays office-only. Administrators and in-scope operators can choose **Redo with
+  Whisper** when the stored recording still exists; the current text remains visible until the new
+  transcription succeeds.
 - **Keep computers awake** (`/admin`): scoped policies with an absolute expiry, honored offline. They
   do not unlock screens or override manual sleep.
 

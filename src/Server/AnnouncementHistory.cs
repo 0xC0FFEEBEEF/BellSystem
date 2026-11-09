@@ -190,6 +190,44 @@ public sealed partial class AnnouncementsService
         return changed > 0 ? new(200, null) : new(500, "correction was not stored");
     }
 
+    /// Re-run the stored recording through the configured engine. Keep the visible transcript while
+    /// work is pending or if the retry fails; a successful result becomes the new automatic original.
+    public TranscriptOutcome RedoTranscript(CurrentUser user, string announcementId)
+    {
+        if (user.Role is not ("admin" or "operator"))
+            return new(403, "only administrators and operators can redo transcripts");
+        var ann = Read(announcementId);
+        if (ann is null) return new(404, "no such announcement");
+        if (user.Role == "operator" && _leases.GateTarget(user, ann.Target).Status != 200)
+            return new(403, "this announcement is outside your group scope");
+        if (ann.Status != "ended") return new(409, "the announcement has not ended");
+        if (string.IsNullOrWhiteSpace(ann.RecordingPath) || !File.Exists(ann.RecordingPath))
+            return new(409, "the stored recording is unavailable");
+
+        long now = NowMs;
+        using var conn = _db.Open();
+        var active = conn.Scalar("SELECT status FROM transcript_jobs WHERE announcement_id = $a AND status IN ('queued','running') LIMIT 1",
+            ("$a", announcementId)) as string;
+        if (active is not null) return new(409, $"transcription is already {active}");
+        using var tx = conn.BeginTransaction();
+        conn.Run(tx, """
+            INSERT INTO transcripts(announcement_id, status, created_at, updated_at)
+            VALUES ($a, 'pending', $t, $t)
+            ON CONFLICT(announcement_id) DO UPDATE SET status = 'pending', purged = 0, updated_at = $t
+            """, ("$a", announcementId), ("$t", now));
+        conn.Run(tx, "DELETE FROM transcript_jobs WHERE announcement_id = $a", ("$a", announcementId));
+        conn.Run(tx, """
+            INSERT INTO transcript_jobs(announcement_id, status, attempts, max_attempts, created_at, updated_at)
+            VALUES ($a, 'queued', 0, $m, $t, $t)
+            """, ("$a", announcementId), ("$m", LiveSettings.TranscriptionMaxAttempts), ("$t", now));
+        Audit.Add(conn, tx, user.Username, "transcript.redo", $"announcement={announcementId}");
+        tx.Commit();
+        _log.LogInformation("transcript for {AnnouncementId} requeued by {User}", announcementId, user.Username);
+        conn.Dispose();
+        PushHistory(announcementId);
+        return new(202, null);
+    }
+
     // ---------------------------------------------------------------- transcription queue
 
     private static void EnsureTranscriptQueued(SqliteConnection conn, SqliteTransaction? tx, string announcementId, long now)

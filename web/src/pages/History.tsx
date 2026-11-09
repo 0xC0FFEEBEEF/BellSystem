@@ -135,7 +135,11 @@ function Item({ a, reload }: { a: any; reload: () => void }) {
           {text === null ? <p>{t.transcript_current ?? <span className="dim">The transcript is pending or unavailable.</span>}</p>
             : <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} aria-label="Corrected transcript" />}
           {me.role !== "viewer" && (text === null
-            ? <button onClick={() => setText(t.transcript_current ?? "")}>Correct transcript</button>
+            ? <div className="row"><button onClick={() => setText(t.transcript_current ?? "")}>Correct transcript</button>
+              <button disabled={busy || t.status === "pending"} onClick={() => {
+                if (!confirm("Redo this transcript from the stored recording? The current text stays visible until Whisper succeeds.")) return;
+                run(async () => { await post(`/api/history/${a.announcement_id}/retranscribe`, {}); detail.reload(); reload(); }, "Transcript queued for Whisper");
+              }}>Redo with Whisper</button></div>
             : <><button className="primary" disabled={busy} onClick={() => run(async () => { await post(`/api/history/${a.announcement_id}/correct`, { text }); setText(null); detail.reload(); reload(); }, "Correction saved (original kept)")}>Save correction</button> <button onClick={() => setText(null)}>Cancel</button></>)}
         </div>)}
     </details>

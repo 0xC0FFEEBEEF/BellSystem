@@ -317,6 +317,14 @@ public static class AnnouncementsEndpoints
             return res.Status == 200 ? Http.Json(new { ok = true }) : Err.Detail(res.Status, res.Detail!);
         });
 
+        app.MapPost("/api/history/{announcementId}/retranscribe", (HttpContext ctx, string announcementId) =>
+        {
+            var (user, err) = Office(ctx);
+            if (user is null) return err!;
+            var res = announcements.RedoTranscript(user, announcementId);
+            return res.Status == 202 ? Http.Json(new { queued = true }, 202) : Err.Detail(res.Status, res.Detail!);
+        });
+
         app.MapGet("/api/admin/transcription", (HttpContext ctx) =>
         {
             var (user, err) = Office(ctx, read: true);
