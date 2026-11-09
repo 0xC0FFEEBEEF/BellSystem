@@ -56,4 +56,31 @@ public class TranscriptRedoTests
         conn.Run("UPDATE announcements SET recording_path = NULL WHERE announcement_id = $a", ("$a", id));
         Assert.Equal(HttpStatusCode.Conflict, (await app.Post($"/api/history/{id}/retranscribe", new { })).StatusCode);
     }
+
+    [Fact]
+    public async Task Redo_queues_a_previous_announcement_that_has_no_transcript()
+    {
+        using var app = new TestApp();
+        await app.LoginAsAdmin();
+        await LiveTest.EnrollAsync(app, "RHS-NO-TRANSCRIPT");
+        var uploaded = await app.Upload("/api/announcements/recorded", "file", "previous.wav",
+            LiveTest.BuildWav(16000, 16000), ("target", "{\"all\":true}"));
+        Assert.Equal(HttpStatusCode.Created, uploaded.StatusCode);
+        string id = (await app.Json(uploaded)).Str("announcement_id");
+        Assert.True(app.Factory.Services.GetRequiredService<AnnouncementsService>().End(id, "operator", "test"));
+
+        var db = LiveTest.DbOf(app);
+        using (var conn = db.Open())
+        {
+            conn.Run("DELETE FROM transcript_jobs WHERE announcement_id = $a", ("$a", id));
+            conn.Run("DELETE FROM transcripts WHERE announcement_id = $a", ("$a", id));
+        }
+
+        var response = await app.Post($"/api/history/{id}/retranscribe", new { });
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        using var check = db.Open();
+        Assert.Equal("pending", check.Scalar("SELECT status FROM transcripts WHERE announcement_id = $a", ("$a", id)));
+        Assert.Equal("queued", check.Scalar("SELECT status FROM transcript_jobs WHERE announcement_id = $a", ("$a", id)));
+        Assert.Equal(0, Convert.ToInt32(check.Scalar("SELECT attempts FROM transcript_jobs WHERE announcement_id = $a", ("$a", id))));
+    }
 }

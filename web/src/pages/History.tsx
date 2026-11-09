@@ -118,6 +118,7 @@ function Item({ a, reload }: { a: any; reload: () => void }) {
   const [text, setText] = useState<string | null>(null);
   const { busy, run } = useBusy();
   const t = detail.data?.transcript;
+  const hasRecording = Boolean(a.recording?.audio_url || detail.data?.recording?.audio_url);
   return (
     <details className="history-item" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
       <summary>
@@ -128,15 +129,15 @@ function Item({ a, reload }: { a: any; reload: () => void }) {
       {a.recording?.audio_url && <audio controls preload="none" src={`/${a.recording.audio_url}`} />}
       <table><thead><tr><th>Endpoint</th><th>Result</th><th>Steps</th></tr></thead>
         <tbody>{(a.delivery ?? []).map((d: any) => <tr key={d.device_id}><td>{d.label}</td><td><Badge state={d.state} /> <span className="dim">{reasonText(d.error_code)}</span></td><td className="dim">{(d.states ?? []).join(" → ")}</td></tr>)}</tbody></table>
-      {t && (
+      {(t || hasRecording) && (
         <div className="transcript">
-          <p><b>Transcript</b> ({t.status}{t.corrected_by ? `, corrected by ${t.corrected_by}` : ""})</p>
-          {t.transcript_original && t.corrected_by && <p className="dim">Automatic: {t.transcript_original}</p>}
-          {text === null ? <p>{t.transcript_current ?? <span className="dim">The transcript is pending or unavailable.</span>}</p>
+          <p><b>Transcript</b> ({t?.status ?? "none"}{t?.corrected_by ? `, corrected by ${t.corrected_by}` : ""})</p>
+          {t?.transcript_original && t.corrected_by && <p className="dim">Automatic: {t.transcript_original}</p>}
+          {text === null ? <p>{t?.transcript_current ?? <span className="dim">{t ? "The transcript is pending or unavailable." : "No transcript has been generated."}</span>}</p>
             : <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} aria-label="Corrected transcript" />}
           {me.role !== "viewer" && (text === null
-            ? <div className="row"><button onClick={() => setText(t.transcript_current ?? "")}>Correct transcript</button>
-              <button disabled={busy || t.status === "pending"} onClick={() => {
+            ? <div className="row">{t && <button onClick={() => setText(t.transcript_current ?? "")}>Correct transcript</button>}
+              <button disabled={busy || t?.status === "pending"} onClick={() => {
                 if (!confirm("Redo this transcript from the stored recording? The current text stays visible until Whisper succeeds.")) return;
                 run(async () => { await post(`/api/history/${a.announcement_id}/retranscribe`, {}); detail.reload(); reload(); }, "Transcript queued for Whisper");
               }}>Redo with Whisper</button></div>
