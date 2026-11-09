@@ -452,6 +452,7 @@ internal sealed class TranscriptForm : Form
     private readonly Label _status;
     private readonly TextBox _text;
     private bool _ended;
+    private bool _hasTranscriptText;
 
     public string AnnouncementId { get; }
 
@@ -480,7 +481,7 @@ internal sealed class TranscriptForm : Form
             Height = 34,
             Padding = new Padding(12, 2, 12, 8),
             ForeColor = Color.FromArgb(74, 85, 104),
-            Text = "Live transcription is starting…",
+            Text = "Generating transcription…",
             AccessibleName = "Transcript status",
         };
         _text = new TextBox
@@ -493,7 +494,7 @@ internal sealed class TranscriptForm : Form
             BackColor = Color.White,
             Font = new Font("Segoe UI", 11f),
             Margin = new Padding(12),
-            Text = "Listening for speech…",
+            Text = "Generating transcription…",
             AccessibleName = "Announcement transcript",
         };
         var body = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 2, 12, 12) };
@@ -506,7 +507,8 @@ internal sealed class TranscriptForm : Form
     public void MarkEnded()
     {
         _ended = true;
-        _status.Text = "Announcement ended · preparing final transcript…";
+        _status.Text = "Announcement ended · generating transcription…";
+        if (!_hasTranscriptText) _text.Text = "Generating transcription…";
     }
 
     public void Apply(PipeAnnTranscript update)
@@ -518,9 +520,10 @@ internal sealed class TranscriptForm : Form
             _text.Text = "This was a targeted announcement. Its transcript is available only in the office.";
             return;
         }
-        _status.Text = _ended ? "Announcement ended · preparing final transcript…" : "Live transcript · updates automatically";
+        _status.Text = _ended ? "Announcement ended · generating transcription…" : "Live transcript · updates automatically";
         if (!string.IsNullOrWhiteSpace(update.Text))
         {
+            _hasTranscriptText = true;
             _text.Text = update.Text;
             _text.SelectionStart = _text.TextLength;
             _text.ScrollToCaret();
@@ -540,17 +543,18 @@ internal sealed class TranscriptForm : Form
         switch (item.TranscriptStatus)
         {
             case "done":
+                _hasTranscriptText = true;
                 _status.Text = item.Corrected ? "Completed transcript · corrected by the office" : "Completed transcript";
                 _text.Text = item.Text ?? "[No speech detected]";
                 break;
             case "failed":
+                _hasTranscriptText = false;
                 _status.Text = "Announcement ended";
                 _text.Text = "The transcript could not be completed.";
                 break;
             default:
-                _status.Text = "Announcement ended · preparing final transcript…";
-                if (string.IsNullOrWhiteSpace(_text.Text) || _text.Text == "Listening for speech…")
-                    _text.Text = "The final transcript will appear here automatically.";
+                _status.Text = "Announcement ended · generating transcription…";
+                if (!_hasTranscriptText) _text.Text = "Generating transcription…";
                 break;
         }
     }
