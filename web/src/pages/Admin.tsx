@@ -197,11 +197,13 @@ function KeepAwake() {
 function Settings() {
   const s = useData<any>("/api/admin/settings");
   const defaults = useData<any>("/api/admin/device-defaults");
+  const whisper = useData<any>("/api/admin/whisper", 5000);
   const { busy, run } = useBusy();
   const [tz, setTz] = useState<string>();
   const [name, setName] = useState<string>();
   const [vol, setVol] = useState<number>();
   const [cap, setCap] = useState<number>();
+  const [whisperCores, setWhisperCores] = useState<number>();
   const zones = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf("timeZone") as string[] : [];
   return (
     <div className="grid">
@@ -217,6 +219,17 @@ function Settings() {
         <Field label={`Cap: ${cap ?? defaults.data?.volume_cap ?? 100}%`}><input type="range" min={10} max={100} value={cap ?? defaults.data?.volume_cap ?? 100} onChange={(e) => setCap(Number(e.target.value))} /></Field>
         <p className="dim small">During a bell or announcement the speaker and SchoolBell's own volume are unmuted and set to this level, then restored to exactly what the user had. Per-endpoint overrides are on the Endpoints page.</p>
         <button className="primary" disabled={busy} onClick={() => run(async () => { await put("/api/admin/device-defaults", { announcement_volume: vol, volume_cap: cap }); defaults.reload(); }, "Sent to all endpoints")}>Save</button>
+      </Card>
+      <Card title="Transcription performance">
+        <Field label={`Whisper CPU cores: ${whisperCores ?? whisper.data?.cpu_cores ?? 2}`} hint="More cores process queued transcripts faster. Bells and announcements never wait for transcription.">
+          <input type="range" min={whisper.data?.min_cpu_cores ?? 1} max={whisper.data?.max_cpu_cores ?? 16}
+            value={whisperCores ?? whisper.data?.cpu_cores ?? 2} onChange={(e) => setWhisperCores(Number(e.target.value))} />
+        </Field>
+        <p className="dim small">Applied: {whisper.data?.applied_cpu_cores ?? "not reported"} core(s). Status: {String(whisper.data?.state ?? "loading").replace(/_/g, " ")}.</p>
+        <p className="dim small">Applying this restarts only Whisper. A transcript currently in progress returns to the durable retry queue.</p>
+        <button className="primary" disabled={busy || whisper.data?.request_pending} onClick={() => run(async () => {
+          await put("/api/admin/whisper", { cpu_cores: whisperCores ?? whisper.data?.cpu_cores ?? 2 }); whisper.reload();
+        }, "Whisper resources requested")}>{whisper.data?.request_pending ? "Applying…" : "Apply and restart Whisper"}</button>
       </Card>
     </div>
   );

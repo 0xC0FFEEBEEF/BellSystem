@@ -58,6 +58,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddHttpClient("github", c => c.Timeout = TimeSpan.FromSeconds(30));
 builder.Services.AddHttpClient("whisper", c => c.Timeout = TimeSpan.FromMinutes(5));
 builder.Services.AddSingleton<ITranscriptionEngine, WhisperCppEngine>();   // loopback whisper.cpp server
+builder.Services.AddSingleton<WhisperControlService>();
 builder.Services.AddSingleton<LiveTranscriptionService>();
 builder.Services.AddSingleton<DeviceSettingsService>();
 builder.Services.AddSingleton<ReleaseTrust>();

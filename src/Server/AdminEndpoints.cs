@@ -6,6 +6,7 @@ internal sealed record UserUpdateRequest(string? Role, List<long>? GroupScope, b
 internal sealed record GroupRequest(string? Name);
 internal sealed record MemberRequest(string? DeviceId);
 internal sealed record SettingsRequest(string? SchoolTz, string? ServerName);
+internal sealed record WhisperSettingsRequest(int? CpuCores);
 internal sealed record KeepAwakeRequest(string? Scope, string? Id, int? DurationMinutes, long? UntilUtc, bool? DisplayOff);
 internal sealed record DeviceNameRequest(string? DeviceId);
 
@@ -18,6 +19,7 @@ public static class AdminEndpoints
         var keepAwake = app.Services.GetRequiredService<KeepAwakeService>();
         var enrollment = app.Services.GetRequiredService<EnrollmentService>();
         var diagnostics = app.Services.GetRequiredService<DiagnosticsService>();
+        var whisper = app.Services.GetRequiredService<WhisperControlService>();
 
         static (CurrentUser? User, IResult? Error) Admin(HttpContext ctx)
         {
@@ -135,6 +137,22 @@ public static class AdminEndpoints
             var body = await Http.ReadBody<SettingsRequest>(ctx);
             var (status, detail) = directory.UpdateSettings(user.Username, body?.SchoolTz, body?.ServerName);
             return status == 200 ? Http.Json(directory.GetSettings()) : Err.Detail(status, detail!);
+        });
+
+        app.MapGet("/api/admin/whisper", (HttpContext ctx) =>
+        {
+            var (user, err) = Admin(ctx);
+            if (user is null) return err!;
+            return Http.Json(whisper.Status());
+        });
+
+        app.MapPut("/api/admin/whisper", async (HttpContext ctx) =>
+        {
+            var (user, err) = Admin(ctx);
+            if (user is null) return err!;
+            var body = await Http.ReadBody<WhisperSettingsRequest>(ctx);
+            var res = whisper.Request(user.Username, body?.CpuCores);
+            return res.Status == 202 ? Http.Json(whisper.Status(), 202) : Err.Detail(res.Status, res.Detail!);
         });
 
         app.MapPost("/api/admin/devices/revoke", async (HttpContext ctx) =>

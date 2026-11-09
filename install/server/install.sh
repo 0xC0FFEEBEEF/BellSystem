@@ -130,6 +130,7 @@ chown -R root:root "$DEST.tmp"; chmod -R go-w "$DEST.tmp"
 rm -rf "$DEST"; mv "$DEST.tmp" "$DEST"
 install -m 0755 "$HERE/bin/caddy" "$PREFIX/bin/caddy.new" && mv -f "$PREFIX/bin/caddy.new" "$PREFIX/bin/caddy"
 install -m 0755 "$HERE/schoolbell-update.sh" /usr/local/sbin/schoolbell-update
+install -m 0755 "$HERE/schoolbell-whisper-control.sh" /usr/local/sbin/schoolbell-whisper-control
 
 say "configuration (existing values kept)"
 ENVF="$ETC/env"
@@ -180,7 +181,7 @@ runuser -u schoolbell-proxy -- env HOME="$PROXYVAR" XDG_DATA_HOME="$PROXYVAR" XD
 mv -f "$ETC/Caddyfile.new" "$ETC/Caddyfile"; chmod 0644 "$ETC/Caddyfile"
 
 say "systemd units"
-for u in schoolbell.service schoolbell-whisper.service schoolbell-caddy.service schoolbell-update.service schoolbell-update.path; do
+for u in schoolbell.service schoolbell-whisper.service schoolbell-whisper-control.service schoolbell-whisper-control.path schoolbell-caddy.service schoolbell-update.service schoolbell-update.path; do
   install -m 0644 "$HERE/systemd/$u" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
@@ -190,7 +191,7 @@ ln -sfn "releases/$VERSION" "$PREFIX/current.new" && mv -Tf "$PREFIX/current.new
 [ -n "$FROM" ] && [ "$FROM" != "$VERSION" ] && { mv -f "$PREFIX/previous.tmp" "$PREFIX/previous"; mv -f "$PREFIX/previous-backup.tmp" "$PREFIX/previous-backup"; }
 rm -f "$PREFIX/previous.tmp" "$PREFIX/previous-backup.tmp"
 
-systemctl enable schoolbell schoolbell-whisper schoolbell-caddy schoolbell-update.path >/dev/null 2>&1
+systemctl enable schoolbell schoolbell-whisper schoolbell-whisper-control.path schoolbell-caddy schoolbell-update.path >/dev/null 2>&1
 systemctl restart schoolbell-whisper
 WHISPER_OK=no
 for _ in $(seq 1 90); do
@@ -218,7 +219,7 @@ if ! GOT=$(health http://127.0.0.1:5001/api/health "$VERSION" 120); then
   exit 1
 fi
 systemctl restart schoolbell-caddy
-systemctl start schoolbell-update.path
+systemctl start schoolbell-update.path schoolbell-whisper-control.path
 
 if [ "$FIREWALL" = 1 ] && command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
   say "ufw is active: allowing 443/tcp (existing rules untouched)"

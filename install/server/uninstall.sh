@@ -5,12 +5,13 @@
 set -u
 PURGE=0; [ "${1:-}" = "--purge-data" ] && PURGE=1
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
-systemctl disable --now schoolbell-update.path schoolbell schoolbell-whisper schoolbell-caddy 2>/dev/null || true
+systemctl disable --now schoolbell-update.path schoolbell-whisper-control.path schoolbell schoolbell-whisper schoolbell-caddy 2>/dev/null || true
 rm -f /etc/systemd/system/schoolbell.service /etc/systemd/system/schoolbell-caddy.service \
       /etc/systemd/system/schoolbell-whisper.service /etc/systemd/system/schoolbell-update.service \
-      /etc/systemd/system/schoolbell-update.path
+      /etc/systemd/system/schoolbell-update.path /etc/systemd/system/schoolbell-whisper-control.service \
+      /etc/systemd/system/schoolbell-whisper-control.path
 systemctl daemon-reload
-rm -f /usr/local/sbin/schoolbell-update
+rm -f /usr/local/sbin/schoolbell-update /usr/local/sbin/schoolbell-whisper-control
 rm -rf /opt/schoolbell
 if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "443/tcp"; then
   echo "note: the ufw rule for 443/tcp was left in place (remove with: ufw delete allow 443/tcp)"

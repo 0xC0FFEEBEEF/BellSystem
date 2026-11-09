@@ -1,0 +1,8 @@
+[Unit]
+Description=Apply SchoolBell Whisper resource settings
+ConditionPathExists=/var/lib/schoolbell/whisper-control/request.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/schoolbell-whisper-control
+TimeoutStartSec=2min

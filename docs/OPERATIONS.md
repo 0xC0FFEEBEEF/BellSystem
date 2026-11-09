@@ -98,8 +98,12 @@ duration of the sound, then puts master and per-app volume back exactly as they 
 
 Transcription runs entirely on the SchoolBell server through `schoolbell-whisper.service` on loopback
 port 8178. Check it with `systemctl status schoolbell-whisper` and
-`journalctl -u schoolbell-whisper -f`. It uses the bundled English `small.en` model, is CPU-limited to
-two cores, and never blocks audio playback. Set `SchoolBell__TranscriptionEnabled=false` in
+`journalctl -u schoolbell-whisper -f`. It uses the bundled English `small.en` model, defaults to two
+CPU cores, and never blocks audio playback. **Admin → Settings → Transcription performance** can assign
+1–16 cores (always leaving at least two detected host cores for SchoolBell and the OS). Applying a
+change restarts only Whisper; an in-progress job returns to the durable retry queue. The unprivileged
+web app writes a bounded request which `schoolbell-whisper-control.path` hands to a root-only validator.
+Set `SchoolBell__TranscriptionEnabled=false` in
 `/etc/schoolbell/env` and restart `schoolbell` to disable it; queued final transcripts resume when it
 is re-enabled.
 

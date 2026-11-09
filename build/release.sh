@@ -114,7 +114,7 @@ fi
 install -D -m 0755 "$CC/caddy" "$SRV/bin/caddy"; cp "$CC/LICENSE" "$SRV/bin/caddy.LICENSE"
 
 step "server bundle"
-cp install/server/install.sh install/server/uninstall.sh install/server/schoolbell-update.sh "$SRV/"
+cp install/server/install.sh install/server/uninstall.sh install/server/schoolbell-update.sh install/server/schoolbell-whisper-control.sh "$SRV/"
 cp -r install/server/systemd install/server/caddy "$SRV/"
 cp build/release-signing.pub.pem "$SRV/"
 echo "$VERSION" > "$SRV/VERSION"
