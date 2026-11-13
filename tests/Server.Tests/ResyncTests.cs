@@ -27,12 +27,16 @@ public class ResyncTests
         using var app = new TestApp(tz: "America/Chicago");
         var dev = await LiveTest.EnrollAsync(app, "RHS-12328");
         await using var c = await ControlClient.ConnectAsync(app, dev);
+        // auth.ok can reach the caller before the connection is registered. Complete the same
+        // resync exchange as a real client before another HTTP request tries to send it a ring.
+        await c.SendAsync(ControlEnvelope.Create(Protocol.TDeviceResync,
+            PayloadSerializer.Node(new DeviceResyncPayload(null, 0, []))));
+        Assert.Equal(Protocol.TDeviceSettings, (await c.NextAsync(5000))?.Type);
         await c.SendAsync(ControlEnvelope.Create(Protocol.TManifestRejected,
             PayloadSerializer.Node(new ManifestRejectedPayload(1, "revision_not_newer"))));
         // the connection is still there: a ring reaches it
         Assert.Equal(HttpStatusCode.Created, (await app.Post("/api/bells/ring", new { target = new { all = true } })).StatusCode);
-        var got = await c.DrainAsync(2000);
-        Assert.Contains(got, e => e.Type == Protocol.TBellRing);
+        Assert.Equal(Protocol.TBellRing, (await c.NextAsync(5000))?.Type);
         Assert.Equal(WebSocketState.Open, c.Socket.State);
     }
 
@@ -49,7 +53,14 @@ public class ResyncTests
         await using var c = await ControlClient.ConnectAsync(app, dev);
         await c.SendAsync(ControlEnvelope.Create(Protocol.TDeviceResync,
             PayloadSerializer.Node(new DeviceResyncPayload("cursor-the-server-never-issued", 0, []))));
-        var got = await c.DrainAsync(1500);
+        var got = new List<ControlEnvelope>();
+        for (int i = 0; i < 10; i++)
+        {
+            var message = await c.NextAsync(5000);
+            Assert.NotNull(message);
+            got.Add(message!);
+            if (message!.Type == Protocol.TDeviceSettings) break; // last step of the resync reply
+        }
 
         var settings = Assert.Single(got, e => e.Type == Protocol.TDeviceSettings);
         Assert.Null(settings.EventId);
