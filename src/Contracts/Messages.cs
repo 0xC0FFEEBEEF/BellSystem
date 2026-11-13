@@ -157,13 +157,16 @@ public sealed record BellRingPayload(
 /// output that disappears is reported missing_output, never silently replaced.
 public sealed record DeviceSettingsPayload(
     long SettingsVersion, string? OutputDevice, int AnnouncementVolume, int VolumeCap,
-    List<long> Groups, string? Room);
+    List<long> Groups, string? Room, int BellNotificationSeconds = 12);
 
 /// Tray history entry. Text is present only for schoolwide announcements; targeted
 /// announcements carry no text (office-only until verified identity integration exists).
 public sealed record HistoryItemPayload(
     string AnnouncementId, long At, string Kind, string SourceLabel, bool Schoolwide,
     string TranscriptStatus, string? Text, bool Corrected);
+
+/// Explicit, short-lived reminder. It carries a current history snapshot and never offers audio.
+public sealed record TranscriptNotificationPayload(string NotificationId, HistoryItemPayload Item, long ExpiresAt);
 
 /// Ephemeral live transcript update. It is sent only to the frozen audience while the
 /// announcement is active and is not placed in the durable outbox. Text is present only for

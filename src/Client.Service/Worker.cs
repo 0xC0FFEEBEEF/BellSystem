@@ -107,6 +107,7 @@ public sealed class Worker : BackgroundService
         _agent.StateChanged += () => _pipe.SendKeepAwakeState();
         _agent.HistoryChanged += () => _pipe.BroadcastHistory();
         _agent.AnnouncementTranscriptReceived += update => _pipe.BroadcastTranscript(update);
+        _agent.TranscriptNotificationRequested += notice => _pipe.SendTranscriptNotification(notice);
         _agent.ConnectionChanged += connected =>
         {
             _pipe.BroadcastState();
@@ -118,7 +119,26 @@ public sealed class Worker : BackgroundService
         await Task.WhenAll(
             _agent.RunAsync(stoppingToken),
             _pipe.RunAcceptLoopAsync(stoppingToken),
-            WatchIdentityAsync(stoppingToken));
+            WatchIdentityAsync(stoppingToken),
+            UploadLogsAsync(stoppingToken));
+    }
+
+    private async Task UploadLogsAsync(CancellationToken ct)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        var uploader = new ClientLogUploader(_cfg!, http, ClientLogFiles.Discover, () => _agent!.Clock.NowMs());
+        while (!ct.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(Random.Shared.Next(15, 31)), ct);
+            // Authentication uses the corrected server time after the control handshake.
+            if (!_agent!.Connected) continue;
+            try { await uploader.UploadPassAsync(ct); }
+            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                // Avoid a log-upload failure feeding its own upload queue during an outage.
+                System.Diagnostics.Debug.WriteLine("SchoolBell log upload deferred: " + e.GetType().Name);
+            }
+        }
     }
 
     /// Shared computers: a change of console user clears targeted history and refreshes status.

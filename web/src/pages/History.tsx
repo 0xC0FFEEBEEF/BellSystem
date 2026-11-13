@@ -114,10 +114,19 @@ function ComputerResults({ rows, noReport }: { rows: Row[]; noReport?: string[] 
 function Item({ a, reload }: { a: any; reload: () => void }) {
   const me = useMe();
   const [open, setOpen] = useState(false);
-  const detail = useData<any>(open ? `/api/announcements/${a.announcement_id}` : null);
+  const detail = useData<any>(open ? `/api/announcements/${a.announcement_id}` : null, 2000);
   const [text, setText] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ sent: number; offline: number; needs_client_update: number }>();
   const { busy, run } = useBusy();
   const t = detail.data?.transcript;
+  const job = detail.data?.transcription_job;
+  const status = t?.status ?? a.transcript_status ?? "none";
+  const waiting = status === "pending";
+  const canNotify = detail.data?.target?.all === true && status === "completed" && !t?.purged && Boolean(t?.transcript_current?.trim());
+  const statusText = job?.state === "running" ? "Transcribing recording…"
+    : waiting ? (job?.error ? "Waiting to retry transcription…" : "Queued for transcription…")
+    : status === "failed" ? "Transcription failed. You can retry from the stored recording."
+    : "No transcript has been generated for this recording.";
   const hasRecording = Boolean(a.recording?.audio_url || detail.data?.recording?.audio_url);
   return (
     <details className="history-item" onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
@@ -131,17 +140,27 @@ function Item({ a, reload }: { a: any; reload: () => void }) {
         <tbody>{(a.delivery ?? []).map((d: any) => <tr key={d.device_id}><td>{d.label}</td><td><Badge state={d.state} /> <span className="dim">{reasonText(d.error_code)}</span></td><td className="dim">{(d.states ?? []).join(" → ")}</td></tr>)}</tbody></table>
       {(t || hasRecording) && (
         <div className="transcript">
-          <p><b>Transcript</b> ({t?.status ?? "none"}{t?.corrected_by ? `, corrected by ${t.corrected_by}` : ""})</p>
+          <p><b>Transcript</b> ({status}{t?.corrected_by ? `, corrected by ${t.corrected_by}` : ""})</p>
           {t?.transcript_original && t.corrected_by && <p className="dim">Automatic: {t.transcript_original}</p>}
-          {text === null ? <p>{t?.transcript_current ?? <span className="dim">{t ? "The transcript is pending or unavailable." : "No transcript has been generated."}</span>}</p>
+          {text === null ? <p>{t?.transcript_current ?? <span className="dim">{statusText}</span>}</p>
             : <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} aria-label="Corrected transcript" />}
+          {job?.error && status !== "completed" && <p className="warn-text small">{job.error} (attempt {job.attempts} of {job.max_attempts})</p>}
           {me.role !== "viewer" && (text === null
             ? <div className="row">{t && <button onClick={() => setText(t.transcript_current ?? "")}>Correct transcript</button>}
-              <button disabled={busy || t?.status === "pending"} onClick={() => {
+              <button disabled={busy || waiting} onClick={() => {
                 if (!confirm("Redo this transcript from the stored recording? The current text stays visible until Whisper succeeds.")) return;
                 run(async () => { await post(`/api/history/${a.announcement_id}/retranscribe`, {}); detail.reload(); reload(); }, "Transcript queued for Whisper");
-              }}>Redo with Whisper</button></div>
+              }}>Redo with Whisper</button>
+              <button disabled={busy || !canNotify} title={detail.data?.target?.all === false || (detail.data?.target && !detail.data.target.all)
+                ? "Targeted transcripts remain office-only" : "Show a transcript notification on connected computers in the original audience"}
+                onClick={() => run(async () => {
+                  setNotification(await post(`/api/history/${a.announcement_id}/notify`, {}));
+                }, "Transcript notification requested")}>Notify endpoints</button></div>
             : <><button className="primary" disabled={busy} onClick={() => run(async () => { await post(`/api/history/${a.announcement_id}/correct`, { text }); setText(null); detail.reload(); reload(); }, "Correction saved (original kept)")}>Save correction</button> <button onClick={() => setText(null)}>Cancel</button></>)}
+          {notification && <p className="dim small">Transcript notification sent to {notification.sent} connected computer(s).
+            {notification.offline > 0 && <> {notification.offline} offline.</>}
+            {notification.needs_client_update > 0 && <> {notification.needs_client_update} need a client update.</>}
+          </p>}
         </div>)}
     </details>
   );

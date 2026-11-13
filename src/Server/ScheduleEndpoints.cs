@@ -178,7 +178,7 @@ public static class ScheduleEndpoints
                     needs_client_update = stale && manifestBytes > (lim.MaxBytes ?? Protocol.MaxControlMessageBytes),
                 };
             });
-            return Http.Json(new { latest_revision = latest, devices = rows });
+            return Http.Json(new { latest_revision = latest, devices = rows, renewal_error = app.Services.GetRequiredService<Db>().GetSetting("schedule_renewal_error") });
         });
 
         // Tradeoff (documented for S1): manifest-referenced sound bytes are served by asset id
@@ -187,6 +187,11 @@ public static class ScheduleEndpoints
         // use its own bound tokens.
         app.MapGet("/api/sounds/{id}", (HttpContext ctx, string id, string? sha) =>
         {
+            if (sha is { Length: 64 } && sha.All(char.IsAsciiHexDigit))
+            {
+                var frozen = Path.Combine(app.Services.GetRequiredService<ServerConfig>().SoundsDir, "published", sha.ToLowerInvariant() + ".wav");
+                if (File.Exists(frozen)) return Results.File(frozen, "audio/wav", fileDownloadName: $"{id}.wav");
+            }
             var sounds = app.Services.GetRequiredService<SoundService>();
             var resolved = sounds.ResolveFile(id);
             if (resolved is null) return Err.Detail(404, "sound not found");

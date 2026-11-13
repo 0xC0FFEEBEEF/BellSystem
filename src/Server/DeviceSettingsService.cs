@@ -17,6 +17,8 @@ public sealed class DeviceSettingsService
         _db = db; _outbox = outbox; _time = time;
     }
 
+    public int BellNotificationSeconds => int.TryParse(_db.GetSetting("bell_notification_seconds"), out var seconds) ? Math.Clamp(seconds, 0, 300) : 12;
+
     public int DefaultAnnouncementVolume => int.TryParse(_db.GetSetting("default_announcement_volume"), out var v) ? Math.Clamp(v, 0, 100) : 80;
     public int DefaultVolumeCap => int.TryParse(_db.GetSetting("default_volume_cap"), out var v) ? Math.Clamp(v, 1, 100) : 100;
 
@@ -32,7 +34,7 @@ public sealed class DeviceSettingsService
         cmd.CommandText = "SELECT output_device, announcement_volume, volume_cap, room, settings_version FROM devices WHERE device_id = $d";
         cmd.Parameters.AddWithValue("$d", deviceId);
         using var r = cmd.ExecuteReader();
-        if (!r.Read()) return new DeviceSettingsPayload(0, null, DefaultAnnouncementVolume, DefaultVolumeCap, [], null);
+        if (!r.Read()) return new DeviceSettingsPayload(0, null, DefaultAnnouncementVolume, DefaultVolumeCap, [], null, BellNotificationSeconds);
         var output = r.IsDBNull(0) ? null : r.GetString(0);
         int vol = r.IsDBNull(1) ? DefaultAnnouncementVolume : r.GetInt32(1);
         int cap = r.IsDBNull(2) ? DefaultVolumeCap : r.GetInt32(2);
@@ -42,7 +44,7 @@ public sealed class DeviceSettingsService
         var groups = DevicesService.GroupsOf(conn, deviceId).Order().ToList();
         // settings_version is the Unix-ms time of the last change to anything in this payload
         // (settings, defaults, group membership), so it only ever grows.
-        return new DeviceSettingsPayload(version, output, Math.Min(vol, cap), cap, groups, room);
+        return new DeviceSettingsPayload(version, output, Math.Min(vol, cap), cap, groups, room, BellNotificationSeconds);
     }
 
     public ControlEnvelope Envelope(string deviceId) =>
@@ -104,11 +106,12 @@ public sealed class DeviceSettingsService
         return (200, null);
     }
 
-    public void SetDefaults(string actor, int? announcementVolume, int? volumeCap)
+    public void SetDefaults(string actor, int? announcementVolume, int? volumeCap, int? bellNotificationSeconds = null)
     {
+        if (bellNotificationSeconds is not null) _db.SetSetting("bell_notification_seconds", Math.Clamp(bellNotificationSeconds.Value, 0, 300).ToString());
         if (announcementVolume is not null) _db.SetSetting("default_announcement_volume", Math.Clamp(announcementVolume.Value, 0, 100).ToString());
         if (volumeCap is not null) _db.SetSetting("default_volume_cap", Math.Clamp(volumeCap.Value, 1, 100).ToString());
-        Audit.Add(_db, actor, "device.defaults", $"announcement_volume={announcementVolume} volume_cap={volumeCap}");
+        Audit.Add(_db, actor, "device.defaults", $"announcement_volume={announcementVolume} volume_cap={volumeCap} bell_notification_seconds={bellNotificationSeconds}");
         PushAll();
     }
 }

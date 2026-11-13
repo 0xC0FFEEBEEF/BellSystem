@@ -56,7 +56,7 @@ systemctl restart schoolbell-whisper.service
 
 READY=no
 for _ in $(seq 1 60); do
-  if curl -sf --max-time 2 http://127.0.0.1:8178/ >/dev/null; then READY=yes; break; fi
+  if curl -sf --max-time 2 http://127.0.0.1:8178/health >/dev/null; then READY=yes; break; fi
   sleep 1
 done
 if [ "$READY" != yes ]; then

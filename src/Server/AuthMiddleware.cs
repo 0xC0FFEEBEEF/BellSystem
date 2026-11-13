@@ -75,7 +75,7 @@ public sealed class CsrfMiddleware
         var isWrite = !HttpMethods.IsGet(method) && !HttpMethods.IsHead(method) && !HttpMethods.IsOptions(method);
         // /api/enroll is a cookie-less machine endpoint (PROTOCOL.md §2): CSRF protects
         // cookie-session office clients only.
-        bool isMachineEndpoint = ctx.Request.Path == "/api/enroll";
+        bool isMachineEndpoint = ctx.Request.Path == "/api/enroll" || ctx.Request.Path == SchoolBell.Contracts.ClientLogAuth.Path;
         if (isWrite && !isMachineEndpoint && ctx.Request.Path.StartsWithSegments("/api"))
         {
             var cookie = ctx.Request.Cookies[CookieNames.Csrf];

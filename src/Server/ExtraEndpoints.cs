@@ -9,7 +9,7 @@ namespace SchoolBell.Server;
 
 internal sealed record RingRequest(TargetScope? Target, string? SoundId, string? BellName, int? DurationS);
 internal sealed record DeviceSettingsRequest(string? OutputDevice, bool? UseDefaultOutput, int? AnnouncementVolume, int? VolumeCap, string? Room);
-internal sealed record DefaultsRequest(int? AnnouncementVolume, int? VolumeCap);
+internal sealed record DefaultsRequest(int? AnnouncementVolume, int? VolumeCap, int? BellNotificationSeconds);
 internal sealed record RolloutRequest(string? Version, TargetScope? Target, int? BatchSize, int? BatchIntervalS, bool? AllowDowngrade);
 internal sealed record ServerUpdateConfigRequest(string? Repo, bool? AutoUpdate, string? Window);
 internal sealed record ServerUpdateApplyRequest(string? Version);
@@ -217,7 +217,7 @@ public static class ExtraEndpoints
         {
             var (u, e) = Need(ctx, "admin");
             if (u is null) return e!;
-            return Http.Json(new { announcement_volume = settings.DefaultAnnouncementVolume, volume_cap = settings.DefaultVolumeCap });
+            return Http.Json(new { announcement_volume = settings.DefaultAnnouncementVolume, volume_cap = settings.DefaultVolumeCap, bell_notification_seconds = settings.BellNotificationSeconds });
         });
 
         app.MapPut("/api/admin/device-defaults", async (HttpContext ctx) =>
@@ -225,8 +225,9 @@ public static class ExtraEndpoints
             var (u, e) = Need(ctx, "admin");
             if (u is null) return e!;
             var b = await Http.ReadBody<DefaultsRequest>(ctx);
-            settings.SetDefaults(u.Username, b?.AnnouncementVolume, b?.VolumeCap);
-            return Http.Json(new { announcement_volume = settings.DefaultAnnouncementVolume, volume_cap = settings.DefaultVolumeCap });
+            if (b is null || b.BellNotificationSeconds is < 0 or > 300) return Err.Detail(400, "bell_notification_seconds must be 0 (off) through 300");
+            settings.SetDefaults(u.Username, b.AnnouncementVolume, b.VolumeCap, b.BellNotificationSeconds);
+            return Http.Json(new { announcement_volume = settings.DefaultAnnouncementVolume, volume_cap = settings.DefaultVolumeCap, bell_notification_seconds = settings.BellNotificationSeconds });
         });
 
         // ---------------------------------------------------------------- client updates

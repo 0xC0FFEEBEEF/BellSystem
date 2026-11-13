@@ -2,12 +2,15 @@ import { useState } from "react";
 import { api, del, fmtTime, get, post, put, upload, type Device } from "../api";
 import { AudienceSelector, audienceTarget, audienceValid, Badge, Card, Empty, Field, useBusy, useData, useMe, type Audience } from "../ui";
 
-const TABS = { users: "Users", groups: "Groups", enroll: "Enrollment", keepawake: "Keep awake", settings: "Settings", updates: "Updates", backup: "Backup", log: "Log", diag: "Diagnostics" } as const;
+const TABS = { users: "Users", groups: "Groups", enroll: "Enrollment", keepawake: "Keep awake", settings: "Settings", updates: "Updates", backup: "Backup", log: "Server log", clientlog: "Client logs", diag: "Diagnostics" } as const;
 type Tab = keyof typeof TABS;
 
 export function Admin() {
   const me = useMe();
-  const [tab, setTab] = useState<Tab>("users");
+  const [tab, setTab] = useState<Tab>(() => {
+    const requested = new URLSearchParams(location.search).get("tab");
+    return requested && Object.keys(TABS).includes(requested) ? requested as Tab : "users";
+  });
   if (me.role !== "admin") return <Card title="Administration"><Empty>Administrator role required.</Empty></Card>;
   return (
     <div>
@@ -22,6 +25,7 @@ export function Admin() {
       {tab === "updates" && <Updates />}
       {tab === "backup" && <Backup />}
       {tab === "log" && <ServerLog />}
+      {tab === "clientlog" && <ClientLogs />}
       {tab === "diag" && <Diagnostics />}
     </div>
   );
@@ -198,11 +202,13 @@ function Settings() {
   const s = useData<any>("/api/admin/settings");
   const defaults = useData<any>("/api/admin/device-defaults");
   const whisper = useData<any>("/api/admin/whisper", 5000);
+  const transcription = useData<any>("/api/admin/transcription", 2000);
   const { busy, run } = useBusy();
   const [tz, setTz] = useState<string>();
   const [name, setName] = useState<string>();
   const [vol, setVol] = useState<number>();
   const [cap, setCap] = useState<number>();
+  const [bellSeconds, setBellSeconds] = useState<number>();
   const [whisperCores, setWhisperCores] = useState<number>();
   const zones = (Intl as any).supportedValuesOf ? (Intl as any).supportedValuesOf("timeZone") as string[] : [];
   return (
@@ -220,12 +226,31 @@ function Settings() {
         <p className="dim small">During a bell or announcement the speaker and SchoolBell's own volume are unmuted and set to this level, then restored to exactly what the user had. Per-endpoint overrides are on the Endpoints page.</p>
         <button className="primary" disabled={busy} onClick={() => run(async () => { await put("/api/admin/device-defaults", { announcement_volume: vol, volume_cap: cap }); defaults.reload(); }, "Sent to all endpoints")}>Save</button>
       </Card>
+      <Card title="Bell notifications on classroom computers">
+        <label className="check"><input type="checkbox" checked={(bellSeconds ?? defaults.data?.bell_notification_seconds ?? 12) > 0}
+          onChange={(e) => setBellSeconds(e.target.checked ? 12 : 0)} /> Show a notification when a bell rings</label>
+        <Field label="Show for (seconds)" hint="1–300 seconds. Clicking a notification dismisses it early.">
+          <input type="number" min={1} max={300} disabled={(bellSeconds ?? defaults.data?.bell_notification_seconds ?? 12) === 0}
+            value={(bellSeconds ?? defaults.data?.bell_notification_seconds ?? 12) || 12} onChange={(e) => setBellSeconds(Number(e.target.value))} />
+        </Field>
+        <p className="dim small">Applies to scheduled and test bells on updated Windows clients. The setting is kept while a computer is offline.</p>
+        <button className="primary" disabled={busy || !defaults.data || (bellSeconds !== undefined && (!Number.isInteger(bellSeconds) || bellSeconds < 0 || bellSeconds > 300))}
+          onClick={() => run(async () => { await put("/api/admin/device-defaults", { bell_notification_seconds: bellSeconds ?? defaults.data?.bell_notification_seconds ?? 12 }); defaults.reload(); }, "Notification setting sent to all endpoints")}>Save</button>
+      </Card>
       <Card title="Transcription performance">
-        <Field label={`Whisper CPU cores: ${whisperCores ?? whisper.data?.cpu_cores ?? 2}`} hint="More cores process queued transcripts faster. Bells and announcements never wait for transcription.">
+        <Field label={`Whisper CPU cores: ${whisperCores ?? whisper.data?.cpu_cores ?? 2}`} hint="Sets the thread count and CPU allowance. Usage varies during recognition; more threads do not always run faster. Bells and announcements never wait for transcription.">
           <input type="range" min={whisper.data?.min_cpu_cores ?? 1} max={whisper.data?.max_cpu_cores ?? 16}
             value={whisperCores ?? whisper.data?.cpu_cores ?? 2} onChange={(e) => setWhisperCores(Number(e.target.value))} />
         </Field>
-        <p className="dim small">Applied: {whisper.data?.applied_cpu_cores ?? "not reported"} core(s). Status: {String(whisper.data?.state ?? "loading").replace(/_/g, " ")}.</p>
+        <p>Whisper: <b>{whisper.data?.engine_available === true ? "Ready" : whisper.data?.engine_available === false ? "Offline / loading" : "Checking…"}</b>
+          {transcription.data?.transcription_enabled === false && <span className="warn-text"> · Transcription disabled</span>}</p>
+        <p className="dim small">Configured: {whisper.data?.applied_cpu_cores ?? "not reported"} core(s).
+          {whisper.data?.actual_threads != null && <> Running with {whisper.data.actual_threads} threads.</>}
+          {whisper.data?.cpu_quota_cores != null && <> CPU allowance: {whisper.data.cpu_quota_cores} cores.</>}
+          {whisper.data?.message && <> {whisper.data.message}</>}</p>
+        <p className="small">Queued: {transcription.data?.jobs?.queued ?? 0} · Transcribing: {transcription.data?.jobs?.running ?? 0} · Failed: {transcription.data?.jobs?.failed ?? 0}
+          {transcription.data?.last_duration_ms != null && <> · Last job: {(transcription.data.last_duration_ms / 1000).toFixed(1)} s</>}</p>
+        {transcription.data?.last_error && <p className="warn-text small">Last transcription error: {transcription.data.last_error}</p>}
         <p className="dim small">Applying this restarts only Whisper. A transcript currently in progress returns to the durable retry queue.</p>
         <button className="primary" disabled={busy || whisper.data?.request_pending} onClick={() => run(async () => {
           await put("/api/admin/whisper", { cpu_cores: whisperCores ?? whisper.data?.cpu_cores ?? 2 }); whisper.reload();
@@ -310,6 +335,46 @@ function Backup() {
       </Card>
     </div>
   );
+}
+
+type ClientLogRow = { id: number; device_id: string; label: string; source: string; file_id: string; offset: number; text: string; received_at: number };
+
+function ClientLogs() {
+  const endpoints = useData<{ items: Device[] }>("/api/admin/client-logs/endpoints", 15000);
+  const [device, setDevice] = useState(() => new URLSearchParams(location.search).get("device_id") ?? "");
+  const [q, setQ] = useState("");
+  const [before, setBefore] = useState<number>();
+  const [days, setDays] = useState(14);
+  const query = `device_id=${encodeURIComponent(device)}&q=${encodeURIComponent(q)}`;
+  const logs = useData<{ items: ClientLogRow[]; next_before?: number }>(
+    `/api/admin/client-logs?count=100&${query}${before ? `&before=${before}` : ""}`, before ? undefined : 5000);
+  const items = logs.data?.items ?? [];
+  return <Card title="Client logs" actions={<>
+    <a className="file-btn" href={`/admin?tab=clientlog&device_id=${encodeURIComponent(device)}`} target="_blank" rel="noopener noreferrer">Open in new window</a>
+    <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Client log download days">
+      <option value={1}>Last day</option><option value={7}>Last 7 days</option><option value={14}>Last 14 days</option>
+    </select>
+    <a className="file-btn" href={`/api/admin/client-logs.txt?${query}&days=${days}`} download>Download .txt</a>
+  </>}>
+    <p className="dim small">Verbose SchoolBell service, tray app, enrollment, installer and updater logs from updated clients.
+      Uploads resume after an outage. Kept for 14 days, shown by newest upload; timestamps inside the logs come from each computer.</p>
+    <div className="row">
+      <select value={device} onChange={(e) => { setDevice(e.target.value); setBefore(undefined); }} aria-label="Filter client logs by endpoint">
+        <option value="">All endpoints</option>
+        {[...(endpoints.data?.items ?? [])].sort((a, b) => a.label.localeCompare(b.label)).map(d => <option key={d.device_id} value={d.device_id}>{d.label}</option>)}
+      </select>
+      <input value={q} onChange={(e) => { setQ(e.target.value); setBefore(undefined); }} placeholder="Search log text or source…" aria-label="Search client logs" />
+      <button onClick={() => { setBefore(undefined); logs.reload(); }}>Latest</button>
+    </div>
+    {logs.error && <p className="error">{String(logs.error)}</p>}
+    {items.length === 0 ? <Empty>No client logs{q || device ? " match this filter" : " uploaded yet"}.</Empty>
+      : items.map(row => <div key={row.id} className="client-log-entry">
+        <p className="small"><b>{row.label}</b> · {row.source} · received {fmtTime(row.received_at)}</p>
+        <pre className="code log">{row.text}</pre>
+      </div>)}
+    <div className="pager"><button disabled={!before} onClick={() => setBefore(undefined)}>Latest</button>
+      <button disabled={!logs.data?.next_before || items.length < 100} onClick={() => setBefore(logs.data?.next_before)}>Older logs</button></div>
+  </Card>;
 }
 
 function ServerLog() {

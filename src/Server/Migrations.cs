@@ -341,5 +341,25 @@ public static class Migrations
         """
         ALTER TABLE devices ADD COLUMN max_message_bytes INTEGER;
         """,
+        // 7: published rule snapshots and authenticated endpoint diagnostic uploads
+        """
+        ALTER TABLE published_revisions ADD COLUMN rules_json TEXT;
+        CREATE TABLE client_logs(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+          source TEXT NOT NULL,
+          file_id TEXT NOT NULL,
+          byte_offset INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          received_at INTEGER NOT NULL,
+          UNIQUE(device_id, file_id, byte_offset)
+        );
+        CREATE INDEX idx_client_logs_device ON client_logs(device_id, id);
+        CREATE INDEX idx_client_logs_received ON client_logs(received_at);
+        """,
+        // 8: retry scheduling prevents a failing inference from blocking other recordings
+        """
+        ALTER TABLE transcript_jobs ADD COLUMN next_attempt_at INTEGER NOT NULL DEFAULT 0;
+        """,
     ];
 }

@@ -324,3 +324,83 @@ client updates (a second manifest inside the server bundle lists only the Window
 `device.status` gains optional `available_outputs` (speaker names, for the /admin chooser) and
 `renderer_owner` (`companion` | `service`). Renderer reasons now include `no_user_since_boot`
 (see docs/KNOWN-ISSUES.md: session-0 audio before the first sign-in is silent on Windows 11 25H2).
+
+## 14. Schedule renewal, bell cards and endpoint diagnostics (additive)
+
+The server snapshots the templates, weekdays, timezone, holidays, overrides and sound hashes at
+explicit Publish. A startup/minutely worker extends the signed seven-day horizon once per school
+day from that snapshot, keeping stable occurrence IDs. Draft edits require explicit Publish.
+Sound URLs include `?sha=<hash>`; published bytes are retained independently of later replacements.
+Legacy schedules adopt matching saved rules once; conflicting rules require explicit Publish.
+
+`device.settings` and local-pipe `settings` gain optional `bell_notification_seconds`: default 12,
+0 disables bell cards, 1–300 specifies their duration. This affects scheduled/manual bell cards,
+not audio or announcement notifications. Settings persist on the service for offline use; older
+clients ignore the additive field.
+
+Updated clients POST raw log chunks to `/api/device-logs`, independently of the control socket:
+
+```
+{ source, file_id, offset, encoding, data }
+```
+
+`file_id` is a durable random 32-character GUID for a local log generation; `offset` counts source
+bytes. `data` is base64 of at most 8192 bytes, `encoding` is `utf-8`, `utf-16` or `utf-16BE`.
+Body limit is 32768 bytes. Request headers are `X-SchoolBell-Device`, `X-SchoolBell-Time` (UTC Unix
+milliseconds), and `X-SchoolBell-Proof`. Proof uses the existing AuthProof HMAC with nonce
+`POST:/api/device-logs:<timestamp>:<uppercase SHA256 hex of exact body bytes>`, followed by device ID
+as in §3. Timestamps must be within ten minutes of the server clock; clients use their corrected
+clock. Revoked/unknown devices are rejected. This machine endpoint is cookie-less and exempt from
+office CSRF; no office-session write gains that exemption.
+
+HTTP 200 acknowledges durable storage; retries deduplicate by `(device_id, file_id, offset)`.
+Clients keep their byte cursor until 200, save generation IDs before sending, process retained
+rotations before the current file, and throttle each pass to 256 KiB with 15–30 seconds between
+passes. Cursor state lives in the client's data directory. Local rotated logs remain the offline
+queue; files already removed by local rotation are unavailable.
+
+`GET /api/admin/client-logs` supports `device_id`, `q`, `count` (1–500) and `before` (exclusive
+upload ID). `GET /api/admin/client-logs/endpoints` lists endpoint choices without a page-size cap.
+`GET /api/admin/client-logs.txt` streams all matching retained chunks, with optional `days` (1–14),
+`device_id` and `q`. All three require an administrator. Logs are stored separately from the server
+log, retained fourteen days from upload, and displayed newest-upload-first with the original text
+and per-chunk source information.
+
+## 15. Transcription queue and readiness repairs (additive)
+
+Stored recorded announcements enter the durable transcription queue immediately, while their
+delivery offer remains active. Live audio enters after WAV finalization and handle close. This
+does not shorten delivery windows or block playback. The worker wakes on new work, drains eligible
+jobs without an inter-job pause, recovers interrupted claims on startup, and backfills retained
+recordings with missing jobs. Empty responses and inference timeouts retry with `next_attempt_at`
+backoff; failed attempts never become successful empty transcripts. Explicit redo remains permitted
+for finalized recorded offers while they are still active and preserves existing text until success.
+
+The bundled engine's `/health` must return HTTP success with JSON `status: "ok"`. Live previews
+cannot build an inference backlog behind final jobs. Quiet 16-bit mono PCM is amplified by up to
+32× only in the inference copy; only digital silence is skipped. English `small.en` remains the
+model; there is no promise of perfect recognition.
+
+Announcement detail gains `transcription_job` (`state`, `attempts`, `max_attempts`, `error`,
+`updated_at`, `next_attempt_at`). Admin queue status adds latest timing/error information. Whisper
+admin status adds model readiness, transcription enablement, and read-only runtime thread/cgroup
+quota observations when available. An old applied-settings file is not treated as runtime health.
+Client transcript presentation treats final completion/failure as terminal until an explicit redo;
+audio end and late previews cannot change it back to generating.
+
+## 16. Explicit transcript notification (additive)
+
+`POST /api/history/{announcementId}/notify` requires an administrator or appropriately scoped
+operator and a completed, non-purged schoolwide transcript. It sends the latest current/corrected
+text only to connected, non-revoked members of the original frozen audience advertising capability
+`transcript_notify`. HTTP 202 returns `sent`, `offline`, and `needs_client_update`. The action is
+audited and creates no transcription job, audio offer, media token, delivery result or durable
+outbox entry. Targeted transcripts remain office-only.
+
+Control message `transcript.notify`: `{ notification_id, item, expires_at }`, where `item` is a
+`history.item` snapshot (`transcript_status: "done"`). There is no envelope `event_id`: it cannot
+advance the replay cursor. A ten-minute expiry bounds stale delivery; offline devices do not get
+a deferred popup. Clients deduplicate notification IDs, update cached history, and send the new
+local-pipe `transcript.notify` to the active renderer companion only. The companion shows a
+persistent **Transcript ready** card with View/Ignore and the announcement's original date/time.
+Each explicit click uses a new notification ID; normal history refresh and reconnect do not notify.

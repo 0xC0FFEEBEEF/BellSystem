@@ -28,6 +28,7 @@ public static class PipeProtocol
     public const string TAnnFrames = "ann.frames";
     public const string TAnnEnd = "ann.end";
     public const string TAnnTranscript = "ann.transcript";
+    public const string TTranscriptNotify = "transcript.notify";
     public const string TKeepAwakeState = "keepawake.state";
     public const string TManifestState = "manifest.state";
 
@@ -100,7 +101,7 @@ public sealed record VolumeRecoveryRecord(
 
 public sealed record PipeVolumeOverride(VolumeRecoveryRecord? Record);          // companion -> service
 public sealed record PipeVolumeRecover(VolumeRecoveryRecord Record);            // service -> companion
-public sealed record PipeSettings(string? OutputDevice, int AnnouncementVolume, int VolumeCap);
+public sealed record PipeSettings(string? OutputDevice, int AnnouncementVolume, int VolumeCap, int BellNotificationSeconds = 12);
 public sealed record PipeHistoryList(List<SchoolBell.Contracts.HistoryItemPayload> Items);
 public sealed record PipeServiceState(
     bool Connected, string ServerUrl, string RendererOwner, string ComputerName, string ClientVersion,

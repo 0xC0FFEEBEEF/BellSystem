@@ -198,6 +198,7 @@ public sealed class LiveWsHub
             _transcription.Complete(announcementId);
 
             var final = writer.Finalize();
+            writer.Dispose(); // release the exclusive WAV handle before waking the transcript worker
             _announcements.StoreRecording(announcementId, final, path);
 
             // Lease invalidated on mic close (PROTOCOL.md §7: tab closure ends the lease).

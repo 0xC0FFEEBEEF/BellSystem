@@ -21,6 +21,79 @@ public sealed class PublishResult
 /// into every non-revoked device's outbox (offline devices receive it on resync).
 public sealed class PublishService
 {
+    private readonly object _publishGate = new();
+
+    public sealed record PublishedRules(string SchoolTz, List<CompileTemplate> Templates,
+        Dictionary<string, long?> Overrides, Dictionary<string, string> Holidays, List<SoundRef> Sounds);
+
+    private PublishedRules CaptureRules() => new(SchoolTz ?? "", _templates.LoadCompileTemplates(),
+        _templates.LoadOverrides(), _templates.LoadHolidays(), _sounds.List().Select(s =>
+            new SoundRef(s.Id, s.Sha256, $"/api/sounds/{s.Id}?sha={s.Sha256}")).ToList());
+
+    private void FreezeSounds(PublishedRules rules)
+    {
+        var dir = Path.Combine(_cfg.SoundsDir, "published");
+        Directory.CreateDirectory(dir);
+        foreach (var sound in rules.Sounds)
+        {
+            var dest = Path.Combine(dir, sound.Sha256 + ".wav");
+            if (File.Exists(dest)) continue;
+            var source = _sounds.ResolveFile(sound.Id);
+            if (source is null || source.Value.Asset.Sha256 != sound.Sha256)
+                throw new IOException($"published sound '{sound.Id}' is unavailable");
+            var bytes = File.ReadAllBytes(source.Value.Path);
+            if (Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant() != sound.Sha256) throw new IOException("sound changed while publishing; retry publish");
+            File.WriteAllBytes(dest + ".tmp", bytes);
+            File.Move(dest + ".tmp", dest, overwrite: true);
+        }
+    }
+
+    /// Refresh once per school day from the rules explicitly published by the operator.
+    /// Never activates draft edits or creates a school's first schedule automatically.
+    public PublishOutcome? RenewIfNeeded()
+    {
+        lock (_publishGate)
+        {
+            using var conn = _db.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT manifest_json, rules_json FROM published_revisions ORDER BY revision DESC LIMIT 1";
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+            var latest = JsonSerializer.Deserialize<ScheduleManifestPayload>(reader.GetString(0), ControlEnvelope.Json)!;
+            var rulesJson = reader.IsDBNull(1) ? null : reader.GetString(1);
+            reader.Close();
+            var zone = DateTimeZoneProviders.Tzdb.GetZoneOrNull(latest.SchoolTz);
+            if (zone is null) return new(409, "published timezone is invalid; publish the schedule again");
+            var today = Instant.FromDateTimeOffset(_time.GetUtcNow()).InZone(zone).Date;
+            var wantedEnd = today.PlusDays(Protocol.ManifestHorizonDays).AtStartOfDayInZone(zone).ToInstant();
+            bool needsRenewal = latest.HorizonEnd < wantedEnd.ToUnixTimeMilliseconds();
+            if (!needsRenewal && rulesJson is not null) return null;
+            PublishedRules rules;
+            if (rulesJson is null)
+            {
+                // Older releases did not save rules with a publish. Adopt the saved rules only
+                // when they reproduce that published horizon, otherwise require explicit Publish.
+                rules = CaptureRules();
+                var from = Instant.FromUnixTimeMilliseconds(latest.HorizonStart).InZone(zone).Date;
+                var to = Instant.FromUnixTimeMilliseconds(latest.HorizonEnd - 1).InZone(zone).Date;
+                var check = ScheduleCompiler.Compile(zone, from, to, rules.Templates, rules.Overrides, rules.Holidays, latest.ExpiresAt);
+                if (rules.SchoolTz != latest.SchoolTz ||
+                    CanonicalJson.Serialize(check.Occurrences) != CanonicalJson.Serialize(latest.Occurrences) ||
+                    !rules.Sounds.All(s => latest.Sounds.Any(old => old.Id == s.Id && old.Sha256 == s.Sha256)))
+                    return new(409, "automatic renewal needs one explicit Publish: saved rules differ from the legacy published schedule");
+                FreezeSounds(rules);
+                conn.Run("UPDATE published_revisions SET rules_json = $rules WHERE revision = $r",
+                    ("$rules", JsonSerializer.Serialize(rules, ControlEnvelope.Json)), ("$r", latest.Revision));
+            }
+            else rules = JsonSerializer.Deserialize<PublishedRules>(rulesJson, ControlEnvelope.Json)!;
+            if (!needsRenewal) return null;
+            var outcome = PublishLocked("schedule-renewal", rules);
+            if (outcome.Status == 200)
+                _log.LogInformation("automatically renewed published schedule: revision {Revision}, expires {ExpiresAt}",
+                    outcome.Result!.Revision, outcome.Result.ExpiresAt);
+            return outcome;
+        }
+    }
     private readonly Db _db;
     private readonly ServerConfig _cfg;
     private readonly TimeProvider _time;
@@ -57,7 +130,17 @@ public sealed class PublishService
 
     public PublishOutcome Publish(string actor)
     {
-        var tzId = SchoolTz;
+        lock (_publishGate)
+        {
+            var rules = CaptureRules();
+            if (!string.IsNullOrEmpty(rules.SchoolTz)) FreezeSounds(rules);
+            return PublishLocked(actor, rules);
+        }
+    }
+
+    private PublishOutcome PublishLocked(string actor, PublishedRules rules)
+    {
+        var tzId = rules.SchoolTz;
         if (string.IsNullOrEmpty(tzId))
             return new(409, "timezone not configured");
         var zone = DateTimeZoneProviders.Tzdb.GetZoneOrNull(tzId);
@@ -70,7 +153,7 @@ public sealed class PublishService
         long expiresAt = ScheduleCompiler.ToUnixMs(horizonEnd) + 3_600_000; // +1 h grace
 
         var compiled = ScheduleCompiler.Compile(zone, today, today.PlusDays(Protocol.ManifestHorizonDays - 1),
-            _templates.LoadCompileTemplates(), _templates.LoadOverrides(), _templates.LoadHolidays(), expiresAt);
+            rules.Templates, rules.Overrides, rules.Holidays, expiresAt);
 
         var key = SigningKey.Load(_cfg, TrustPin.Get(_db));
         var keyRef = "sha256:" + Util.Sha256Hex(Convert.ToHexString(key));
@@ -88,7 +171,7 @@ public sealed class PublishService
                 HorizonStart = ScheduleCompiler.ToUnixMs(horizonStart),
                 HorizonEnd = ScheduleCompiler.ToUnixMs(horizonEnd),
                 ExpiresAt = expiresAt,
-                Sounds = _sounds.List().Select(s => new SoundRef(s.Id, s.Sha256, s.Url)).ToList(),
+                Sounds = rules.Sounds,
                 Occurrences = compiled.Occurrences,
             };
             manifest.Signature = ManifestSigner.Sign(manifest, key);
@@ -101,11 +184,12 @@ public sealed class PublishService
 
             using var tx = conn.BeginTransaction();
             conn.Run(tx, """
-                INSERT INTO published_revisions(revision, manifest_json, signing_key_ref, published_at, published_by)
-                VALUES ($r, $m, $k, $t, $p)
+                INSERT INTO published_revisions(revision, manifest_json, signing_key_ref, published_at, published_by, rules_json)
+                VALUES ($r, $m, $k, $t, $p, $rules)
                 """,
                 ("$r", revision), ("$m", CanonicalJson.Serialize(manifest)), ("$k", keyRef),
-                ("$t", now.ToUnixTimeMilliseconds()), ("$p", actor));
+                ("$t", now.ToUnixTimeMilliseconds()), ("$p", actor),
+                ("$rules", JsonSerializer.Serialize(rules, ControlEnvelope.Json)));
             foreach (var o in compiled.Occurrences)
                 conn.Run(tx, """
                     INSERT INTO occurrences(revision, occurrence_id, starts_at, bell_name, kind, sound_id,
@@ -119,6 +203,7 @@ public sealed class PublishService
             tx.Commit();
         }
 
+        if (!string.IsNullOrEmpty(_db.GetSetting("schedule_renewal_error"))) _db.SetSetting("schedule_renewal_error", "");
         var targets = _devices.NonRevokedDevices();
         var envelope = ControlEnvelope.Create(Protocol.TScheduleManifest, PayloadSerializer.Node(manifest));
         foreach (var (deviceId, _) in targets)

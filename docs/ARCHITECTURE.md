@@ -36,6 +36,8 @@ Protocol: `PROTOCOL.md` (v1, plus additive v1.1 messages). Status and evidence: 
   duplicate it. DST: nonexistent local times are skipped, ambiguous run once (first mapping).
   Devices accept only newer revisions, ack, and keep executing their last accepted manifest
   until it expires — never guessing the calendar after expiry.
+  The server snapshots explicitly published rules/calendar/sounds and renews their horizon daily;
+  startup recovers an expired horizon, and draft edits remain unpublished until an explicit Publish.
 - **Bells are executed client-side** from the cached manifest: offline-capable, claim-before-play,
   at-most-once per occurrence, missed bells recorded `expired` (never replayed late), bells due
   during live speech recorded `suppressed`. The claim→speaker crash window is documented
@@ -50,6 +52,10 @@ Protocol: `PROTOCOL.md` (v1, plus additive v1.1 messages). Status and evidence: 
 - **Enrollment**: short-lived single-use scoped token → unique per-device secret + per-school
   trust pin; no shared device password, no unauthenticated broadcast, no remote shell, no
   certificate bypass anywhere (`tools/EnrollTool` refuses plain http to non-loopback hosts).
+- **Endpoint diagnostics**: a separate authenticated HTTP upload carries bounded raw file chunks
+  from retained Windows SchoolBell logs. Durable generation/byte cursors and server deduplication
+  handle retries independently of the control and audio sockets. The administrator-only client
+  log viewer has endpoint filtering, paging and complete downloads; server retention is 14 days.
 - **Keep-awake**: dedicated service thread (`SetThreadExecutionState`), absolute expiring
   policies honored offline, display left on by default; cannot defeat manual sleep/lid/shutdown
   and never unlocks a screen (documented to operators).

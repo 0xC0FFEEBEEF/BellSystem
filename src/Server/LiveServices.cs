@@ -51,8 +51,8 @@ public sealed class AnnouncementSweeperHost : BackgroundService
     }
 }
 
-/// The transcription pipeline is real up to the engine boundary: on announcement completion a
-/// durable transcript_jobs row is queued (max 5 attempts) and a transcript row starts as `pending`.
+/// A finalized recording immediately gets a durable transcript_jobs row (max 5 attempts) and a
+/// pending transcript, independently of the announcement delivery window.
 /// No transcript text is ever invented here. The worker only runs when transcription is enabled
 /// and the bundled loopback whisper.cpp service is available; otherwise jobs remain queued.
 public interface ITranscriptionEngine
@@ -61,6 +61,7 @@ public interface ITranscriptionEngine
     bool Available { get; }
     Task<bool> IsAvailableAsync(CancellationToken ct) => Task.FromResult(Available);
     Task<string?> TranscribeAsync(ReadOnlyMemory<byte> wav, CancellationToken ct);
+    Task<string?> TranscribePreviewAsync(ReadOnlyMemory<byte> wav, CancellationToken ct) => TranscribeAsync(wav, ct);
 }
 
 /// Test/fallback engine. Available=false keeps every job queued.
@@ -73,8 +74,6 @@ public sealed class NoTranscriptionEngine : ITranscriptionEngine
 
 public sealed class TranscriptionWorkerHost : BackgroundService
 {
-    private static readonly TimeSpan Interval = TimeSpan.FromSeconds(5);
-
     private readonly Db _db;
     private readonly LiveSettings _settings;
     private readonly AnnouncementsService _announcements;
@@ -88,111 +87,126 @@ public sealed class TranscriptionWorkerHost : BackgroundService
         _db = db; _settings = settings; _announcements = announcements; _engine = engine; _time = time; _log = log;
     }
 
+    public void RecoverInterruptedJobs()
+    {
+        using var conn = _db.Open();
+        var count = conn.Run("""
+            UPDATE transcript_jobs SET status = 'queued', attempts = MAX(0, attempts - 1),
+                last_error = 'interrupted by server restart; queued again', next_attempt_at = 0, updated_at = $t
+            WHERE status = 'running'
+            """, ("$t", _time.GetUtcNow().ToUnixTimeMilliseconds()));
+        if (count > 0) _log.LogWarning("recovered {Count} interrupted transcription job(s)", count);
+        _announcements.RepairTranscriptionQueue();
+    }
+
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        string? lastIdleReason = null;
-        using var timer = new PeriodicTimer(Interval);
-        while (await timer.WaitForNextTickAsync(ct))
+        RecoverInterruptedJobs();
+        long nextRepair = _time.GetUtcNow().ToUnixTimeMilliseconds() + 60_000;
+        while (!ct.IsCancellationRequested)
         {
             try
             {
-                // Re-read every pass: enabling transcription in /admin or starting the whisper
-                // service takes effect without restarting SchoolBell. Playback never waits on this.
-                string? idle = !_settings.TranscriptionEnabled ? "settings.transcription_enabled=false"
-                    : !await _engine.IsAvailableAsync(ct) ? $"engine '{_engine.Name}' unavailable" : null;
-                if (idle is not null)
+                if (_time.GetUtcNow().ToUnixTimeMilliseconds() >= nextRepair)
                 {
-                    if (idle != lastIdleReason)
-                        _log.LogInformation("transcription worker idle ({Reason}); {Queued} job(s) queued — no transcript is faked", idle, Queued());
-                    lastIdleReason = idle;
-                    continue;
+                    _announcements.RepairTranscriptionQueue();
+                    nextRepair = _time.GetUtcNow().ToUnixTimeMilliseconds() + 60_000;
                 }
-                if (lastIdleReason is not null) _log.LogInformation("transcription worker running with engine {Engine}", _engine.Name);
-                lastIdleReason = null;
-                var job = ClaimJob();
-                if (job is null) continue;
-                var (jobId, annId, path) = job.Value;
-                string? text = null;
-                string? error = null;
-                try
-                {
-                    if (path is null) throw new InvalidOperationException("the announcement has no stored recording");
-                    var wav = await File.ReadAllBytesAsync(path, ct);
-                    text = await _engine.TranscribeAsync(wav, ct);
-                    if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("the engine returned no transcript text");
-                }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception e) { error = e.Message; }
-
-                StoreResult(jobId, annId, text, error);
+                if (await RunOneAsync(ct)) continue; // drain eligible work without a five-second gap
             }
-            catch (Exception e) when (e is not OperationCanceledException)
+            catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                _log.LogError(e, "transcription worker pass failed");
+                _log.LogError(e, "transcription worker pass failed; work remains queued");
             }
+            await _announcements.WaitForTranscriptionWorkAsync(ct);
         }
     }
 
-    private int Queued()
+    public async Task<bool> RunOneAsync(CancellationToken ct)
     {
-        using var conn = _db.Open();
-        return conn.ScalarInt("SELECT COUNT(*) FROM transcript_jobs WHERE status = 'queued'");
+        if (!_settings.TranscriptionEnabled) return false;
+        using (var conn = _db.Open())
+            if (!conn.Exists("SELECT COUNT(*) FROM transcript_jobs WHERE status = 'queued' AND next_attempt_at <= $t",
+                ("$t", _time.GetUtcNow().ToUnixTimeMilliseconds()))) return false;
+        if (!await _engine.IsAvailableAsync(ct)) return false;
+        var job = ClaimJob();
+        if (job is null) return false;
+        var (jobId, annId, path, attempt) = job.Value;
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        string? text = null;
+        string? error = null;
+        try
+        {
+            if (path is null) throw new InvalidOperationException("the announcement has no finalized recording");
+            var wav = await File.ReadAllBytesAsync(path, ct);
+            text = await _engine.TranscribeAsync(wav, ct);
+            if (string.IsNullOrWhiteSpace(text)) throw new InvalidOperationException("Whisper returned no text for the recording; retrying");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            using var conn = _db.Open();
+            conn.Run("UPDATE transcript_jobs SET status = 'queued', attempts = MAX(0, attempts - 1), next_attempt_at = 0 WHERE job_id = $j AND status = 'running'", ("$j", jobId));
+            throw;
+        }
+        catch (Exception e) { text = null; error = e is OperationCanceledException ? "Whisper request timed out; retrying" : e.Message; }
+        StoreResult(jobId, annId, text, error, attempt, started.ElapsedMilliseconds);
+        return true;
     }
 
-    /// Atomic claim of the oldest eligible job, incrementing the attempt counter.
-    private (long JobId, string AnnouncementId, string? Path)? ClaimJob()
+    private (long JobId, string AnnouncementId, string? Path, int Attempt)? ClaimJob()
     {
         long now = _time.GetUtcNow().ToUnixTimeMilliseconds();
         using var conn = _db.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE transcript_jobs SET status = 'running', attempts = attempts + 1, updated_at = $t
-            WHERE job_id = (SELECT job_id FROM transcript_jobs WHERE status = 'queued' AND attempts < max_attempts
-                            ORDER BY job_id LIMIT 1)
-            RETURNING job_id, announcement_id
+            WHERE job_id = (SELECT job_id FROM transcript_jobs WHERE status = 'queued' AND attempts < max_attempts AND next_attempt_at <= $t
+                            ORDER BY created_at DESC, job_id DESC LIMIT 1)
+            RETURNING job_id, announcement_id, attempts
             """;
         cmd.Parameters.AddWithValue("$t", now);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
         long jobId = r.GetInt64(0);
         string annId = r.GetString(1);
+        int attempt = r.GetInt32(2);
         r.Close();
-        var path = conn.Scalar("SELECT recording_path FROM announcements WHERE announcement_id = $a", ("$a", annId)) as string;
-        _log.LogInformation("transcription job {JobId} claimed for announcement {AnnouncementId} (attempt {Attempt})", jobId, annId, 1);
-        return (jobId, annId, path);
+        var path = conn.Scalar("SELECT recording_path FROM announcements WHERE announcement_id = $a AND recording_sha256 IS NOT NULL", ("$a", annId)) as string;
+        _log.LogInformation("transcription job {JobId} claimed for announcement {AnnouncementId} (attempt {Attempt})", jobId, annId, attempt);
+        return (jobId, annId, path, attempt);
     }
 
-    private void StoreResult(long jobId, string announcementId, string? text, string? error)
+    private void StoreResult(long jobId, string announcementId, string? text, string? error, int attempts, long elapsedMs)
     {
         long now = _time.GetUtcNow().ToUnixTimeMilliseconds();
         using var conn = _db.Open();
-        if (text is not null)
+        int max = conn.ScalarInt("SELECT max_attempts FROM transcript_jobs WHERE job_id = $j", ("$j", jobId));
+        bool success = error is null && !string.IsNullOrWhiteSpace(text);
+        bool exhausted = attempts >= max;
+        using (var tx = conn.BeginTransaction())
         {
-            conn.Run("""
-                UPDATE transcripts SET transcript_original = $x, transcript_current = $x, status = 'completed',
-                       engine = $e, corrected_by = NULL, corrected_at = NULL, purged = 0, updated_at = $t
-                WHERE announcement_id = $a
-                """, ("$x", text), ("$e", _engine.Name), ("$t", now), ("$a", announcementId));
-            conn.Run("UPDATE transcript_jobs SET status = 'completed', last_error = NULL, updated_at = $t WHERE job_id = $j",
-                ("$t", now), ("$j", jobId));
-            _log.LogInformation("transcript stored for announcement {AnnouncementId} ({Chars} chars)", announcementId, text.Length);
-            conn.Dispose();
-            _announcements.PushHistory(announcementId);
-            return;
+            var n = conn.Run(tx, """
+                UPDATE transcript_jobs SET status = $s, last_error = $e, updated_at = $t, next_attempt_at = $next
+                WHERE job_id = $j AND status = 'running'
+                """, ("$s", success ? "completed" : exhausted ? "failed" : "queued"), ("$e", error), ("$t", now),
+                ("$next", success ? 0 : now + Math.Min(60_000, 1000L << Math.Min(attempts - 1, 6))), ("$j", jobId));
+            if (n == 0) return; // removed by retention/redo: do not overwrite a newer transcript
+            if (success)
+                conn.Run(tx, """
+                    UPDATE transcripts SET transcript_original = $x, transcript_current = $x, status = 'completed',
+                        engine = $e, corrected_by = NULL, corrected_at = NULL, purged = 0, updated_at = $t
+                    WHERE announcement_id = $a
+                    """, ("$x", text!.Trim()), ("$e", _engine.Name), ("$t", now), ("$a", announcementId));
+            else
+                conn.Run(tx, "UPDATE transcripts SET status = $s, updated_at = $t WHERE announcement_id = $a",
+                    ("$s", exhausted ? "failed" : "pending"), ("$t", now), ("$a", announcementId));
+            tx.Commit();
         }
-
-        int attempts = Convert.ToInt32(conn.Scalar("SELECT attempts FROM transcript_jobs WHERE job_id = $j", ("$j", jobId)) ?? 0);
-        int maxAttempts = Convert.ToInt32(conn.Scalar("SELECT max_attempts FROM transcript_jobs WHERE job_id = $j", ("$j", jobId)) ?? 5);
-        bool exhausted = attempts >= maxAttempts;
-        conn.Run("UPDATE transcript_jobs SET status = $s, last_error = $e, updated_at = $t WHERE job_id = $j",
-            ("$s", exhausted ? "failed" : "queued"), ("$e", error), ("$t", now), ("$j", jobId));
-        if (exhausted)
-        {
-            conn.Run("UPDATE transcripts SET status = 'failed', updated_at = $t WHERE announcement_id = $a", ("$t", now), ("$a", announcementId));
-            _announcements.PushHistory(announcementId);
-        }
-        _log.LogWarning("transcription job {JobId} for announcement {AnnouncementId} failed (attempt {Attempts}/{Max}): {Error}",
-            jobId, announcementId, attempts, maxAttempts, error);
+        Db.SetSetting(conn, "transcription_last_duration_ms", elapsedMs.ToString());
+        if (success) _log.LogInformation("transcript stored for {AnnouncementId}: {Chars} chars in {ElapsedMs} ms", announcementId, text!.Length, elapsedMs);
+        else _log.LogWarning("transcription job {JobId} for {AnnouncementId} failed after {ElapsedMs} ms (attempt {Attempts}/{Max}): {Error}", jobId, announcementId, elapsedMs, attempts, max, error);
+        conn.Dispose();
+        _announcements.PushHistory(announcementId);
     }
 }
 
@@ -204,10 +218,11 @@ public sealed class RetentionWorkerHost : BackgroundService
 
     private readonly AnnouncementsService _announcements;
     private readonly ILogger<RetentionWorkerHost> _log;
+    private readonly ClientLogsService _clientLogs;
 
-    public RetentionWorkerHost(AnnouncementsService announcements, ILogger<RetentionWorkerHost> log)
+    public RetentionWorkerHost(AnnouncementsService announcements, ClientLogsService clientLogs, ILogger<RetentionWorkerHost> log)
     {
-        _announcements = announcements; _log = log;
+        _announcements = announcements; _clientLogs = clientLogs; _log = log;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -215,7 +230,7 @@ public sealed class RetentionWorkerHost : BackgroundService
         using var timer = new PeriodicTimer(Interval);
         do
         {
-            try { _announcements.RunRetention("retention-worker"); }
+            try { _announcements.RunRetention("retention-worker"); _clientLogs.Retain(); }
             catch (Exception e) when (e is not OperationCanceledException) { _log.LogError(e, "retention pass failed"); }
         }
         while (await timer.WaitForNextTickAsync(ct));

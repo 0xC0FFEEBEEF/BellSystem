@@ -234,7 +234,7 @@ public class PublishTests
         var json = conn.ScalarForTests("SELECT manifest_json FROM published_revisions") as string;
         var manifest = JsonSerializer.Deserialize<ScheduleManifestPayload>(json!, ControlEnvelope.Json)!;
         Assert.Equal(3, manifest.Sounds.Count); // std-bell/std-chime/std-buzzer
-        Assert.Contains(manifest.Sounds, s => s.Id == "std-bell" && s.Url == "/api/sounds/std-bell" && s.Sha256.Length == 64);
+        Assert.Contains(manifest.Sounds, s => s.Id == "std-bell" && s.Url == $"/api/sounds/std-bell?sha={s.Sha256}" && s.Sha256.Length == 64);
         Assert.Equal("America/Chicago", manifest.SchoolTz);
         // Nov 4 midnight CST == 06:00Z
         Assert.Equal(Instant.FromUtc(2026, 11, 4, 6, 0).ToUnixTimeMilliseconds(), manifest.HorizonStart);

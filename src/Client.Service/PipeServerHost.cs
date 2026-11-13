@@ -382,11 +382,17 @@ public sealed class PipeServerHost : IDisposable
         foreach (var s in Snapshot()) WriteLine(s, PipeProtocol.TAnnTranscript, pipeUpdate);
     }
 
+    public void SendTranscriptNotification(TranscriptNotificationPayload notice)
+    {
+        foreach (var session in Snapshot().Where(s => s.IsRenderer))
+            WriteLine(session, PipeProtocol.TTranscriptNotify, notice);
+    }
+
     private void SendSettings(Session s)
     {
         var st = _agent?.Settings.Current;
         WriteLine(s, PipeTypes.Settings, new PipeSettings(st?.OutputDevice, _agent?.AnnouncementVolume ?? _cfg.AnnouncementVolume,
-            st?.VolumeCap ?? 100));
+            st?.VolumeCap ?? 100, st?.BellNotificationSeconds ?? 12));
     }
 
     private void SendHistory(Session s)

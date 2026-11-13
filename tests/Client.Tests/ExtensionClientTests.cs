@@ -17,6 +17,7 @@ public class ExtensionClientTests
         public required FakeControlServer Server { get; init; }
         public required DeviceAgent Agent { get; init; }
         public required FakeBellPlayer Player { get; init; }
+        public required FakePipeline Pipeline { get; init; }
         public required CancellationTokenSource Cts { get; init; }
         public required Task Task { get; init; }
         public required string Dir { get; init; }
@@ -36,12 +37,13 @@ public class ExtensionClientTests
         var server = await FakeControlServer.StartAsync(id, secret);
         var dir = TestDirs.Create("ext");
         var player = new FakeBellPlayer();
+        var pipeline = new FakePipeline();
         var agent = new DeviceAgent(AgentKit.MakeConfig(server.Url, dir, id, secret), TimeProvider.System, new HttpClient(),
-            new CapturingLogger(), player, new FakePipeline(), new FakeRenderer(), new FakeIdentity(), new FakeKeepAwake());
+            new CapturingLogger(), player, pipeline, new FakeRenderer(), new FakeIdentity(), new FakeKeepAwake());
         var cts = new CancellationTokenSource();
         var task = Task.Run(() => agent.RunAsync(cts.Token));
         await server.WaitForAsync(Protocol.TDeviceResync);
-        return new Run { Server = server, Agent = agent, Player = player, Cts = cts, Task = task, Dir = dir };
+        return new Run { Server = server, Agent = agent, Player = player, Pipeline = pipeline, Cts = cts, Task = task, Dir = dir };
     }
 
     private static BellRingPayload Ring(string ringId, byte[] wav, long issuedAt, long expiresAt) =>
@@ -114,6 +116,39 @@ public class ExtensionClientTests
         await Task.Delay(800);
         Assert.Equal("Speakers", run.Agent.Settings.Current!.OutputDevice);
         Assert.Contains(42L, run.Agent.EffectiveGroups);
+    }
+
+    [Fact]
+    public async Task Transcript_reminders_notify_without_audio_and_never_move_the_replay_cursor()
+    {
+        await using var run = await StartAsync();
+        var cursor = run.Agent.Cursor.Cursor;
+        int notifications = 0;
+        var notified = new TaskCompletionSource<TranscriptNotificationPayload>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        run.Agent.TranscriptNotificationRequested += n =>
+        {
+            if (Interlocked.Increment(ref notifications) == 2) second.TrySetResult();
+            notified.TrySetResult(n);
+        };
+        var item = new HistoryItemPayload("reminder", NowMs(), "recorded", "Office", true, "done", "Corrected message", true);
+        var payload = new TranscriptNotificationPayload("notice-1", item, NowMs() + 60_000);
+        run.Server.QueueEvent(Protocol.TTranscriptNotify, PayloadSerializer.Node(payload));
+        var result = await notified.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("Corrected message", result.Item.Text);
+        Assert.Equal("Corrected message", run.Agent.History.Snapshot().Single().Text);
+        Assert.Equal(cursor, run.Agent.Cursor.Cursor);
+        run.Server.QueueEvent(Protocol.TTranscriptNotify, PayloadSerializer.Node(payload));
+        run.Server.QueueEvent(Protocol.TTranscriptNotify, PayloadSerializer.Node(payload with { NotificationId = "expired", ExpiresAt = run.Agent.Clock.NowMs() - 1000 }));
+        run.Server.QueueEvent(Protocol.TTranscriptNotify, PayloadSerializer.Node(payload with { NotificationId = "private", Item = item with { Schoolwide = false } }));
+        await Task.Delay(400);
+        Assert.Equal(1, notifications);
+        Assert.Empty(run.Player.Requests);
+        Assert.Empty(run.Pipeline.Starts);
+        Assert.Equal(cursor, run.Agent.Cursor.Cursor);
+        // A separate click intentionally creates another reminder for the same announcement.
+        run.Server.QueueEvent(Protocol.TTranscriptNotify, PayloadSerializer.Node(payload with { NotificationId = "notice-2" }));
+        await second.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]

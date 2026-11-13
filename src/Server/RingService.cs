@@ -134,6 +134,43 @@ public sealed partial class AnnouncementsService
         foreach (var (deviceId, _) in SnapshotDevices(announcementId)) _outbox.Enqueue(deviceId, env);
     }
 
+    public sealed record NotifyOutcome(int Status, string? Detail, int Sent = 0, int Offline = 0, int NeedsClientUpdate = 0);
+
+    /// Explicit transcript reminder to the original audience. Never creates an offer, media token,
+    /// delivery result or transcription job. Ephemeral: do not surprise someone after reconnect.
+    public NotifyOutcome NotifyTranscript(CurrentUser user, string announcementId)
+    {
+        if (user.Role is not ("admin" or "operator")) return new(403, "administrator or operator role required");
+        var ann = Read(announcementId);
+        if (ann is null) return new(404, "no such announcement");
+        if (_leases.GateTarget(user, ann.Target).Status != 200) return new(403, "announcement outside your broadcast scope");
+        if (ann.Target.All != true) return new(409, "targeted transcripts remain office-only");
+        var transcript = Transcript(announcementId);
+        if (transcript is not { Status: "completed", Purged: false } || string.IsNullOrWhiteSpace(transcript.Current))
+            return new(409, "a completed transcript is required before notifying endpoints");
+        var text = transcript.Current.Length > 8000 ? transcript.Current[..8000] : transcript.Current;
+        var item = new HistoryItemPayload(announcementId, ann.StartedAt ?? ann.CreatedAt, ann.Kind,
+            ann.SourceLabel, true, "done", text, transcript.CorrectedBy is not null);
+        var payload = new TranscriptNotificationPayload(Guid.NewGuid().ToString(), item, NowMs + 10 * 60_000);
+        // No durable event ID: this message must not move a device's replay cursor.
+        var envelope = ControlEnvelope.Create(Protocol.TTranscriptNotify, PayloadSerializer.Node(payload)) with { EventId = null };
+        int sent = 0, offline = 0, unsupported = 0;
+        using (var conn = _db.Open())
+            foreach (var (id, _) in SnapshotDevices(conn, announcementId))
+            {
+                if (!conn.Exists("SELECT COUNT(*) FROM devices WHERE device_id = $d AND revoked = 0", ("$d", id))) continue;
+                var connection = _registry.Lookup(id);
+                if (connection is null || connection.Closing) { offline++; continue; }
+                if (!connection.Supports("transcript_notify")) { unsupported++; continue; }
+                connection.Send(envelope);
+                sent++;
+            }
+        Audit.Add(_db, user.Username, "transcript.notify", $"announcement={announcementId} sent={sent} offline={offline} needs_client_update={unsupported}");
+        _log.LogInformation("transcript notification for {AnnouncementId} requested by {User}: sent to {Sent}, offline {Offline}, need client update {Unsupported}",
+            announcementId, user.Username, sent, offline, unsupported);
+        return new(202, null, sent, offline, unsupported);
+    }
+
     /// Best-effort live partial to connected members of the frozen audience. This intentionally
     /// bypasses the durable outbox: partial text is useful only while the announcement is live.
     public void PushLiveTranscript(string announcementId, string? text, string status)

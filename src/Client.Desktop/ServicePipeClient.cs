@@ -18,6 +18,7 @@ internal sealed class ServicePipeClient : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private NamedPipeClientStream? _pipe;
     private AudioEngine? _engine;
+    public int BellNotificationSeconds { get; private set; } = 12;
     private AudioSettings _settings = new(null, 80, 100);
     private string _cacheDir = "";
     private readonly string _localRecoveryPath;
@@ -27,6 +28,7 @@ internal sealed class ServicePipeClient : IDisposable
     public event Action<PipeAnnStart>? AnnouncementStarted;
     public event Action<PipeAnnEnd>? AnnouncementEnded;
     public event Action<PipeAnnTranscript>? TranscriptUpdated;
+    public event Action<TranscriptNotificationPayload>? TranscriptNotificationRequested;
     public bool PipeConnected { get; private set; }
     public string Slot { get; private set; } = "none";
     public PipeServiceState? ServiceState { get; private set; }
@@ -113,6 +115,7 @@ internal sealed class ServicePipeClient : IDisposable
             case PipeTypes.Settings:
                 var st = msg.PayloadAs<PipeSettings>();
                 if (st is null) return;
+                BellNotificationSeconds = Math.Clamp(st.BellNotificationSeconds, 0, 300);
                 _settings = new AudioSettings(st.OutputDevice, st.AnnouncementVolume, st.VolumeCap);
                 _engine?.ApplySettings(_settings);
                 break;
@@ -151,6 +154,12 @@ internal sealed class ServicePipeClient : IDisposable
                 var transcript = msg.PayloadAs<PipeAnnTranscript>();
                 if (transcript is null) return;
                 TranscriptUpdated?.Invoke(transcript);
+                break;
+
+            case PipeProtocol.TTranscriptNotify:
+                var notice = msg.PayloadAs<TranscriptNotificationPayload>();
+                if (notice?.Item is { Schoolwide: true, TranscriptStatus: "done" })
+                    TranscriptNotificationRequested?.Invoke(notice);
                 break;
 
             case PipeProtocol.TManifestState:

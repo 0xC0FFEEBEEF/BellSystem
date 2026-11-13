@@ -39,6 +39,7 @@ builder.Services.AddSingleton<SoundService>();
 builder.Services.AddSingleton<OutboxService>();
 builder.Services.AddSingleton<DevicesService>();
 builder.Services.AddSingleton<ReceiptsService>();
+builder.Services.AddSingleton<ClientLogsService>();
 builder.Services.AddSingleton<TemplatesService>();
 builder.Services.AddSingleton<PublishService>();
 builder.Services.AddSingleton<KeepAwakeService>();
@@ -46,6 +47,7 @@ builder.Services.AddSingleton<DiagnosticsService>();
 builder.Services.AddSingleton<ControlHub>();
 builder.Services.AddSingleton<Bootstrap>();
 builder.Services.AddHostedService<BootstrapHost>();
+builder.Services.AddHostedService<ScheduleRenewalHost>();
 
 // ---- milestone S2: talk lease, live announcements, media relay, recordings, history ----
 builder.Services.AddSingleton<LiveSettings>();
@@ -128,6 +130,7 @@ DeviceEndpoints.Map(app);
 AnnouncementsEndpoints.Map(app);
 ExtraEndpoints.Map(app);
 LogEndpoints.Map(app);
+ClientLogEndpoints.Map(app);
 
 app.Map("/ws/control", async (HttpContext ctx, ControlHub hub) => await hub.HandleAsync(ctx));
 // Office microphone (cookie session + Origin check + talk lease) and device media (single-use OTP).

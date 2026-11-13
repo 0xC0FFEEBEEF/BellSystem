@@ -25,7 +25,7 @@ public sealed class DeviceSettingsStore
         {
             if (_current is not null && settings.SettingsVersion < _current.SettingsVersion) return false;
             if (_current is not null && _current == settings) return false;
-            _current = settings with { Groups = settings.Groups ?? [] };
+            _current = settings with { Groups = settings.Groups ?? [], BellNotificationSeconds = Math.Clamp(settings.BellNotificationSeconds, 0, 300) };
             _store.Save(_current);
             return true;
         }

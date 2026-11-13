@@ -230,6 +230,7 @@ public static class AnnouncementsEndpoints
                     states = d.AllStates,
                 }),
                 recording = view.RecordingView(),
+                transcription_job = announcements.TranscriptJob(announcementId),
                 transcript = t is null ? null : new
                 {
                     status = t.Status,
@@ -323,6 +324,16 @@ public static class AnnouncementsEndpoints
             if (user is null) return err!;
             var res = announcements.RedoTranscript(user, announcementId);
             return res.Status == 202 ? Http.Json(new { queued = true }, 202) : Err.Detail(res.Status, res.Detail!);
+        });
+
+        app.MapPost("/api/history/{announcementId}/notify", (HttpContext ctx, string announcementId) =>
+        {
+            var (user, err) = Office(ctx);
+            if (user is null) return err!;
+            var res = announcements.NotifyTranscript(user, announcementId);
+            return res.Status == 202
+                ? Http.Json(new { sent = res.Sent, offline = res.Offline, needs_client_update = res.NeedsClientUpdate }, 202)
+                : Err.Detail(res.Status, res.Detail!);
         });
 
         app.MapGet("/api/admin/transcription", (HttpContext ctx) =>

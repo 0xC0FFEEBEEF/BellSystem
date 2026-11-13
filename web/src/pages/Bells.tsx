@@ -135,6 +135,8 @@ function Calendar() {
         <p>Published revision <b>{latest || "none"}</b> · accepted by <b>{accepted}</b> of {(acceptance.data?.devices ?? []).length} endpoint(s).</p>
         {needUpdate > 0 && <p><b>{needUpdate}</b> endpoint(s) run a SchoolBell client too old to receive this schedule. Roll out the current client in Admin &gt; Windows client updates.</p>}
         {pub && <p className="dim">Revision {pub.revision}: {pub.occurrence_count} bell(s), sent to {pub.devices_notified} connected endpoint(s); others receive it when they reconnect.</p>}
+        {acceptance.data?.renewal_error ? <p className="error">Automatic renewal needs attention: {acceptance.data.renewal_error}</p>
+          : <p className="dim small">The published schedule renews automatically every day. Saved edits take effect when you publish.</p>}
         <p className="dim small">Endpoints ring from their own cached copy, so bells keep working through network or server outages for up to 7 days. An offline computer cannot learn about a cancellation — check “accepted revision” below.</p>
         <details><summary>Endpoints by accepted revision</summary>
           <table><tbody>{(acceptance.data?.devices ?? []).map((d: any) => (

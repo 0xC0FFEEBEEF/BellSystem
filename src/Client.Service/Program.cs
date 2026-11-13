@@ -24,6 +24,7 @@ builder.Services.AddWindowsService(options => options.ServiceName = "SchoolBell"
 // Operational events go to the Windows EventLog under source "SchoolBell" (never secrets).
 builder.Logging.AddProvider(new SchoolBellEventLogProvider());
 builder.Logging.AddProvider(new ServiceFileLogProvider());
+builder.Logging.AddFilter<ServiceFileLogProvider>(null, LogLevel.Trace);
 // EventLog gets SchoolBell's own operational events only (not framework chatter)
 builder.Logging.AddFilter<SchoolBellEventLogProvider>("Microsoft", LogLevel.Warning);
 builder.Logging.AddFilter<SchoolBellEventLogProvider>("System", LogLevel.Warning);

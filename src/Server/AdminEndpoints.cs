@@ -139,11 +139,11 @@ public static class AdminEndpoints
             return status == 200 ? Http.Json(directory.GetSettings()) : Err.Detail(status, detail!);
         });
 
-        app.MapGet("/api/admin/whisper", (HttpContext ctx) =>
+        app.MapGet("/api/admin/whisper", async (HttpContext ctx) =>
         {
             var (user, err) = Admin(ctx);
             if (user is null) return err!;
-            return Http.Json(whisper.Status());
+            return Http.Json(await whisper.StatusAsync(ctx.RequestAborted));
         });
 
         app.MapPut("/api/admin/whisper", async (HttpContext ctx) =>
@@ -152,7 +152,7 @@ public static class AdminEndpoints
             if (user is null) return err!;
             var body = await Http.ReadBody<WhisperSettingsRequest>(ctx);
             var res = whisper.Request(user.Username, body?.CpuCores);
-            return res.Status == 202 ? Http.Json(whisper.Status(), 202) : Err.Detail(res.Status, res.Detail!);
+            return res.Status == 202 ? Http.Json(await whisper.StatusAsync(ctx.RequestAborted), 202) : Err.Detail(res.Status, res.Detail!);
         });
 
         app.MapPost("/api/admin/devices/revoke", async (HttpContext ctx) =>

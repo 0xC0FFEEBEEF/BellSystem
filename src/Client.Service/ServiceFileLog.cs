@@ -42,18 +42,18 @@ public sealed class ServiceFileLogProvider : ILoggerProvider
     {
         private readonly string _short = category.StartsWith("SchoolBell.") ? category[11..] : category;
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+        public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None &&
+            (category.StartsWith("Microsoft.") || category.StartsWith("System.") ? logLevel >= LogLevel.Warning : true);
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
             if (!IsEnabled(logLevel)) return;
-            if (_short.StartsWith("System.Net.Http")) return;
             owner.Write($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {LevelTag(logLevel)} {_short}: {formatter(state, exception)}" +
-                        (exception is null ? "" : $" [{exception.GetType().Name}: {exception.Message}]"));
+                        (exception is null ? "" : Environment.NewLine + exception));
         }
         private static string LevelTag(LogLevel l) => l switch
         {
-            LogLevel.Critical => "CRIT", LogLevel.Error => "ERR ", LogLevel.Warning => "WARN", _ => "INFO",
+            LogLevel.Trace => "TRACE", LogLevel.Debug => "DEBUG", LogLevel.Critical => "CRIT", LogLevel.Error => "ERR ", LogLevel.Warning => "WARN", _ => "INFO",
         };
     }
 }

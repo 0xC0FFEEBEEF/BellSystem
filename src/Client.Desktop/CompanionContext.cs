@@ -21,6 +21,7 @@ internal sealed class CompanionContext : ApplicationContext
     private AnnouncementNotificationForm? _announcementNotification;
     private readonly Dictionary<string, TranscriptForm> _transcriptForms = [];
     private readonly Dictionary<string, PipeAnnTranscript> _liveTranscripts = [];
+    private readonly Dictionary<string, HistoryItemPayload> _notifiedTranscripts = [];
     private string? _lastNotifiedBellId;
     public int ExitCode { get; private set; }
 
@@ -56,6 +57,7 @@ internal sealed class CompanionContext : ApplicationContext
         _pipe.AnnouncementStarted += announcement => _ui.Post(_ => ShowAnnouncementNotification(announcement), null);
         _pipe.AnnouncementEnded += announcement => _ui.Post(_ => EndAnnouncementNotification(announcement), null);
         _pipe.TranscriptUpdated += update => _ui.Post(_ => ApplyTranscriptUpdate(update), null);
+        _pipe.TranscriptNotificationRequested += notice => _ui.Post(_ => ShowTranscriptNotification(notice), null);
         _pipe.Start();
         _refresh = new System.Windows.Forms.Timer { Interval = 15_000 };
         _refresh.Tick += (_, _) => Render();
@@ -70,25 +72,38 @@ internal sealed class CompanionContext : ApplicationContext
         // the notification calm and show it once even when audio needs another attempt.
         if (_lastNotifiedBellId == bell.OccurrenceId) return;
         _lastNotifiedBellId = bell.OccurrenceId;
+        if (_pipe.BellNotificationSeconds == 0) return;
 
         var name = string.IsNullOrWhiteSpace(bell.BellName) ? "School bell" : bell.BellName.Trim();
         if (name.Length > 180) name = name[..177] + "...";
         _bellNotification?.Close();
         int bottomOffset = _announcementNotification is { Visible: true } ? _announcementNotification.Height + 24 : 14;
-        _bellNotification = new BellNotificationForm(name, bottomOffset);
+        _bellNotification = new BellNotificationForm(name, _pipe.BellNotificationSeconds, bottomOffset);
         _bellNotification.FormClosed += (_, _) => _bellNotification = null;
         _bellNotification.Show();
     }
 
-    private void ShowAnnouncementNotification(PipeAnnStart announcement)
+    private void ShowAnnouncementNotification(PipeAnnStart announcement) =>
+        ShowAnnouncementCard(announcement.AnnouncementId, announcement.SourceLabel, false);
+
+    private void ShowTranscriptNotification(TranscriptNotificationPayload notice)
+    {
+        var item = notice.Item;
+        _notifiedTranscripts[item.AnnouncementId] = item;
+        while (_notifiedTranscripts.Count > 50) _notifiedTranscripts.Remove(_notifiedTranscripts.Keys.First());
+        if (_transcriptForms.TryGetValue(item.AnnouncementId, out var open)) open.Apply(item);
+        var label = $"{item.SourceLabel} · {DateTimeOffset.FromUnixTimeMilliseconds(item.At).ToLocalTime():MMM d, h:mm tt}";
+        ShowAnnouncementCard(item.AnnouncementId, label, true);
+    }
+
+    private void ShowAnnouncementCard(string announcementId, string sourceLabel, bool transcriptReady)
     {
         _announcementNotification?.Close();
-        _announcementNotification = new AnnouncementNotificationForm(announcement.AnnouncementId,
-            announcement.SourceLabel, ViewTranscript);
+        _announcementNotification = new AnnouncementNotificationForm(announcementId, sourceLabel, ViewTranscript);
+        if (transcriptReady) _announcementNotification.MarkTranscriptReady();
         _announcementNotification.FormClosed += (_, _) =>
         {
-            if (_announcementNotification?.AnnouncementId == announcement.AnnouncementId)
-                _announcementNotification = null;
+            if (_announcementNotification?.AnnouncementId == announcementId) _announcementNotification = null;
         };
         _announcementNotification.Show();
     }
@@ -116,7 +131,8 @@ internal sealed class CompanionContext : ApplicationContext
             form.FormClosed += (_, _) => _transcriptForms.Remove(announcementId);
         }
         if (_liveTranscripts.TryGetValue(announcementId, out var live)) form.Apply(live);
-        var history = _pipe.History.FirstOrDefault(h => h.AnnouncementId == announcementId);
+        var history = _pipe.History.FirstOrDefault(h => h.AnnouncementId == announcementId)
+            ?? _notifiedTranscripts.GetValueOrDefault(announcementId);
         if (history is not null) form.Apply(history);
         form.Show();
         form.WindowState = FormWindowState.Normal;
@@ -227,7 +243,7 @@ internal sealed class BellNotificationForm : Form
     private const int WsExToolWindow = 0x00000080;
     private readonly System.Windows.Forms.Timer _dismiss;
 
-    public BellNotificationForm(string bellName, int bottomOffset = 14)
+    public BellNotificationForm(string bellName, int durationSeconds = 12, int bottomOffset = 14)
     {
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
@@ -270,7 +286,7 @@ internal sealed class BellNotificationForm : Form
         foreach (Control control in Controls) control.Click += (_, _) => Close();
         Click += (_, _) => Close();
 
-        _dismiss = new System.Windows.Forms.Timer { Interval = 12_000 };
+        _dismiss = new System.Windows.Forms.Timer { Interval = Math.Clamp(durationSeconds, 1, 300) * 1000 };
         _dismiss.Tick += (_, _) => Close();
         Shown += (_, _) =>
         {
@@ -451,14 +467,14 @@ internal sealed class TranscriptForm : Form
     private readonly Label _heading;
     private readonly Label _status;
     private readonly TextBox _text;
-    private bool _ended;
-    private bool _hasTranscriptText;
+    private readonly TranscriptPresentation _presentation;
 
     public string AnnouncementId { get; }
 
     public TranscriptForm(string announcementId, string sourceLabel)
     {
         AnnouncementId = announcementId;
+        _presentation = new TranscriptPresentation(announcementId);
         Text = "SchoolBell — announcement transcript";
         Width = 720;
         Height = 470;
@@ -504,60 +520,19 @@ internal sealed class TranscriptForm : Form
         Controls.Add(_heading);
     }
 
-    public void MarkEnded()
+    public void MarkEnded() { _presentation.MarkEnded(); RenderTranscript(); }
+    public void Apply(PipeAnnTranscript update) { _presentation.Apply(update); RenderTranscript(); }
+    public void Apply(HistoryItemPayload item) { _presentation.Apply(item); RenderTranscript(); }
+
+    private void RenderTranscript()
     {
-        _ended = true;
-        _status.Text = "Announcement ended · generating transcription…";
-        if (!_hasTranscriptText) _text.Text = "Generating transcription…";
+        _status.Text = _presentation.Status;
+        if (_text.Text == _presentation.Text) return;
+        _text.Text = _presentation.Text;
+        _text.SelectionStart = _text.TextLength;
+        _text.ScrollToCaret();
     }
 
-    public void Apply(PipeAnnTranscript update)
-    {
-        if (update.AnnouncementId != AnnouncementId) return;
-        if (!update.Schoolwide)
-        {
-            _status.Text = _ended ? "Announcement ended" : "Announcement in progress";
-            _text.Text = "This was a targeted announcement. Its transcript is available only in the office.";
-            return;
-        }
-        _status.Text = _ended ? "Announcement ended · generating transcription…" : "Live transcript · updates automatically";
-        if (!string.IsNullOrWhiteSpace(update.Text))
-        {
-            _hasTranscriptText = true;
-            _text.Text = update.Text;
-            _text.SelectionStart = _text.TextLength;
-            _text.ScrollToCaret();
-        }
-    }
-
-    public void Apply(HistoryItemPayload item)
-    {
-        if (item.AnnouncementId != AnnouncementId) return;
-        _ended = true;
-        if (!item.Schoolwide)
-        {
-            _status.Text = "Announcement ended";
-            _text.Text = "This was a targeted announcement. Its transcript is available only in the office.";
-            return;
-        }
-        switch (item.TranscriptStatus)
-        {
-            case "done":
-                _hasTranscriptText = true;
-                _status.Text = item.Corrected ? "Completed transcript · corrected by the office" : "Completed transcript";
-                _text.Text = item.Text ?? "[No speech detected]";
-                break;
-            case "failed":
-                _hasTranscriptText = false;
-                _status.Text = "Announcement ended";
-                _text.Text = "The transcript could not be completed.";
-                break;
-            default:
-                _status.Text = "Announcement ended · generating transcription…";
-                if (!_hasTranscriptText) _text.Text = "Generating transcription…";
-                break;
-        }
-    }
 }
 
 /// History window: previous announcements this computer received, with transcripts for

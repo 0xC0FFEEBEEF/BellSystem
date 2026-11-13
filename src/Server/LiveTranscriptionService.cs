@@ -8,8 +8,8 @@ namespace SchoolBell.Server;
 /// queue and the finalized recording; live updates never delay or enter the audio path.
 public sealed class LiveTranscriptionService
 {
-    private const int PartialIntervalMs = 3_000;
-    private const int MinimumPcmBytes = Protocol.SampleRate * 2; // one second
+    private const int PartialIntervalMs = 6_000;
+    private const int MinimumPcmBytes = Protocol.SampleRate * 2 * 3; // give the recognizer a phrase, not a word fragment
     private const int MaximumPcmBytes = Protocol.SampleRate * 2 * LiveSettings.RecordedMaxDurationS;
 
     private sealed class Session
@@ -61,6 +61,7 @@ public sealed class LiveTranscriptionService
         long now = NowMs;
         lock (session.Gate)
         {
+            if (!session.Active) return;
             int remaining = MaximumPcmBytes - checked((int)session.Pcm.Length);
             if (remaining > 0) session.Pcm.Write(pcm[..Math.Min(pcm.Length, remaining)]);
             long unprocessed = session.Pcm.Length - session.TranscribedBytes;
@@ -77,7 +78,8 @@ public sealed class LiveTranscriptionService
 
     public void Complete(string announcementId)
     {
-        if (_sessions.TryRemove(announcementId, out var session)) session.Active = false;
+        if (_sessions.TryRemove(announcementId, out var session))
+            lock (session.Gate) { session.Active = false; session.Pcm.Dispose(); }
     }
 
     private async Task InferAsync(string announcementId, Session session, byte[] pcm, long snapshotEnd)
@@ -85,7 +87,7 @@ public sealed class LiveTranscriptionService
         try
         {
             if (!await _engine.IsAvailableAsync(CancellationToken.None)) return;
-            var text = await _engine.TranscribeAsync(Wav.Mono16Bytes(pcm), CancellationToken.None);
+            var text = await _engine.TranscribePreviewAsync(Wav.Mono16Bytes(pcm), CancellationToken.None);
             if (!session.Active || string.IsNullOrWhiteSpace(text)) return;
             string? cumulative = null;
             lock (session.Gate)

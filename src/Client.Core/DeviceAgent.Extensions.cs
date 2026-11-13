@@ -107,6 +107,26 @@ public sealed partial class DeviceAgent
         return true;
     }
 
+    private readonly Dictionary<string, long> _transcriptNotifications = [];
+
+    private bool HandleTranscriptNotification(ControlEnvelope env)
+    {
+        var notice = PayloadSerializer.ToPayload<TranscriptNotificationPayload>(env);
+        var now = Clock.NowMs();
+        if (notice?.Item is not { Schoolwide: true, TranscriptStatus: "done" } item ||
+            string.IsNullOrEmpty(notice.NotificationId) || string.IsNullOrEmpty(item.AnnouncementId) ||
+            string.IsNullOrWhiteSpace(item.Text) || notice.ExpiresAt <= now) return true;
+        foreach (var id in _transcriptNotifications.Where(p => p.Value <= now).Select(p => p.Key).ToArray())
+            _transcriptNotifications.Remove(id);
+        if (_transcriptNotifications.ContainsKey(notice.NotificationId)) return true;
+        if (_transcriptNotifications.Count >= 256) _transcriptNotifications.Remove(_transcriptNotifications.MinBy(p => p.Value).Key);
+        _transcriptNotifications[notice.NotificationId] = notice.ExpiresAt;
+        History.Upsert(item);
+        HistoryChanged?.Invoke();
+        TranscriptNotificationRequested?.Invoke(notice);
+        return true;
+    }
+
     private bool HandleAnnouncementTranscript(ControlEnvelope env)
     {
         var update = PayloadSerializer.ToPayload<AnnouncementTranscriptPayload>(env);

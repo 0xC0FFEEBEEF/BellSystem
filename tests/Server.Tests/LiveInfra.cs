@@ -158,7 +158,7 @@ public sealed class ControlClient : IAsyncDisposable
         _reader = Task.Run(ReadLoop);
     }
 
-    public static async Task<ControlClient> ConnectAsync(TestApp app, FakeDevice device)
+    public static async Task<ControlClient> ConnectAsync(TestApp app, FakeDevice device, List<string>? capabilities = null)
     {
         var ws = await app.Factory.Server.CreateWebSocketClient()
             .ConnectAsync(new Uri("ws://localhost/ws/control"), CancellationToken.None);
@@ -166,7 +166,7 @@ public sealed class ControlClient : IAsyncDisposable
         var nonce = challenge!.Payload!["nonce"]!.GetValue<string>();
         await SendAsync(ws, ControlEnvelope.Create(Protocol.TAuthResponse,
             PayloadSerializer.Node(new AuthResponsePayload(device.Id, "s2-test-client",
-                AuthProof.Compute(device.Secret, nonce, device.Id)))));
+                AuthProof.Compute(device.Secret, nonce, device.Id), Capabilities: capabilities))));
         var ok = await ReceiveAsync(ws);
         Assert.Equal(Protocol.TAuthOk, ok!.Type);
         return new ControlClient(device, ws);

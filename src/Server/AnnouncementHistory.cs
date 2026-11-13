@@ -160,6 +160,17 @@ public sealed partial class AnnouncementsService
 
     /// Office correction: transcript_original is never overwritten, and every correction is an
     /// audit row (plan §11). Role-gated: viewers cannot correct.
+    public object? TranscriptJob(string announcementId)
+    {
+        using var conn = _db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT status, attempts, max_attempts, last_error, updated_at, next_attempt_at FROM transcript_jobs WHERE announcement_id = $a ORDER BY job_id DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("$a", announcementId);
+        using var r = cmd.ExecuteReader();
+        return !r.Read() ? null : new { state = r.GetString(0), attempts = r.GetInt32(1), max_attempts = r.GetInt32(2),
+            error = r.IsDBNull(3) ? null : r.GetString(3), updated_at = r.GetInt64(4), next_attempt_at = r.GetInt64(5) };
+    }
+
     public TranscriptOutcome CorrectTranscript(CurrentUser user, string announcementId, string text)
     {
         if (user.Role is not ("admin" or "operator"))
@@ -200,7 +211,7 @@ public sealed partial class AnnouncementsService
         if (ann is null) return new(404, "no such announcement");
         if (user.Role == "operator" && _leases.GateTarget(user, ann.Target).Status != 200)
             return new(403, "this announcement is outside your group scope");
-        if (ann.Status != "ended") return new(409, "the announcement has not ended");
+        if (ann.IsLive && ann.Status != "ended") return new(409, "the announcement has not ended");
         if (string.IsNullOrWhiteSpace(ann.RecordingPath) || !File.Exists(ann.RecordingPath))
             return new(409, "the stored recording is unavailable");
 
@@ -222,6 +233,7 @@ public sealed partial class AnnouncementsService
             """, ("$a", announcementId), ("$m", LiveSettings.TranscriptionMaxAttempts), ("$t", now));
         Audit.Add(conn, tx, user.Username, "transcript.redo", $"announcement={announcementId}");
         tx.Commit();
+        NotifyTranscriptionWork();
         _log.LogInformation("transcript for {AnnouncementId} requeued by {User}", announcementId, user.Username);
         conn.Dispose();
         PushHistory(announcementId);
@@ -229,6 +241,53 @@ public sealed partial class AnnouncementsService
     }
 
     // ---------------------------------------------------------------- transcription queue
+
+    private readonly SemaphoreSlim _transcriptionWake = new(0, 1);
+    private void NotifyTranscriptionWork()
+    {
+        try { _transcriptionWake.Release(); } catch (SemaphoreFullException) { }
+    }
+    public Task<bool> WaitForTranscriptionWorkAsync(CancellationToken ct) =>
+        _transcriptionWake.WaitAsync(TimeSpan.FromSeconds(1), ct);
+
+    /// Repair old recorded offers that never reached End, and finalized recordings missing jobs.
+    /// Purged/completed/failed transcripts remain untouched; manual redo is explicit.
+    public int RepairTranscriptionQueue()
+    {
+        using var conn = _db.Open();
+        var missing = new List<(string Id, string Path)>();
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT a.announcement_id, a.recording_path FROM announcements a
+                LEFT JOIN transcripts t ON t.announcement_id = a.announcement_id
+                WHERE a.recording_path IS NOT NULL AND a.recording_sha256 IS NOT NULL
+                  AND (a.kind = 'recorded' OR a.status = 'ended')
+                  AND (t.announcement_id IS NULL OR (t.status = 'pending' AND t.purged = 0))
+                  AND NOT EXISTS (SELECT 1 FROM transcript_jobs j WHERE j.announcement_id = a.announcement_id)
+                ORDER BY a.created_at DESC LIMIT 100
+                """;
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) missing.Add((r.GetString(0), r.GetString(1)));
+        }
+        int repaired = 0;
+        foreach (var (id, path) in missing)
+        {
+            if (!File.Exists(path)) continue;
+            using (var tx = conn.BeginTransaction())
+            {
+                EnsureTranscriptQueued(conn, tx, id, NowMs);
+                tx.Commit();
+            }
+            repaired++;
+        }
+        if (repaired > 0)
+        {
+            _log.LogInformation("recovered {Count} recordings missing transcription jobs", repaired);
+            NotifyTranscriptionWork();
+        }
+        return repaired;
+    }
 
     private static void EnsureTranscriptQueued(SqliteConnection conn, SqliteTransaction? tx, string announcementId, long now)
     {
@@ -269,6 +328,9 @@ public sealed partial class AnnouncementsService
         {
             transcription_enabled = _settings.TranscriptionEnabled,
             engine = "whisper.cpp / small.en (local server)",
+            last_duration_ms = long.TryParse(Db.GetSetting(conn, "transcription_last_duration_ms"), out var elapsed) ? (long?)elapsed : null,
+            last_error = conn.Scalar("SELECT last_error FROM transcript_jobs WHERE last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1") as string,
+            oldest_queued_at = conn.Scalar("SELECT MIN(created_at) FROM transcript_jobs WHERE status = 'queued'") is long oldest ? (long?)oldest : null,
             note = _settings.TranscriptionEnabled
                 ? "Local transcription is on. Playback never waits for it; failed work is retried by the durable queue."
                 : "Transcription was disabled by the administrator; jobs stay queued and no transcript is faked.",

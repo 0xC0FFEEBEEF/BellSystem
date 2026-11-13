@@ -89,6 +89,13 @@ public class ExtensionTests
         Assert.Equal(HttpStatusCode.OK, (await app.Put($"/api/admin/devices/{dev.Id}/settings", new { use_default_output = true })).StatusCode);
         var s3 = await NextSettings(client);
         Assert.Null(s3.OutputDevice);
+        Assert.Equal(12, s3.BellNotificationSeconds);
+        Assert.Equal(HttpStatusCode.OK, (await app.Put("/api/admin/device-defaults", new { bell_notification_seconds = 0 })).StatusCode);
+        var s4 = await NextSettings(client);
+        Assert.Equal(0, s4.BellNotificationSeconds);
+        Assert.True(s4.SettingsVersion > s3.SettingsVersion);
+        Assert.Equal(s3.AnnouncementVolume, s4.AnnouncementVolume);
+        Assert.Equal(s3.VolumeCap, s4.VolumeCap);
     }
 
     private static async Task<DeviceSettingsPayload> NextSettings(ControlClient c)

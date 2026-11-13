@@ -195,7 +195,7 @@ systemctl enable schoolbell schoolbell-whisper schoolbell-whisper-control.path s
 systemctl restart schoolbell-whisper
 WHISPER_OK=no
 for _ in $(seq 1 90); do
-  if curl -sf --max-time 2 http://127.0.0.1:8178/ >/dev/null; then WHISPER_OK=yes; break; fi
+  if curl -sf --max-time 2 http://127.0.0.1:8178/health >/dev/null; then WHISPER_OK=yes; break; fi
   sleep 1
 done
 if [ "$WHISPER_OK" != yes ]; then

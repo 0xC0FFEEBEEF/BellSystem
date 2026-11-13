@@ -47,6 +47,7 @@ public sealed partial class DeviceAgent
     public event Action<DeviceSettingsPayload>? SettingsChanged;
     public event Action? HistoryChanged;
     public event Action<AnnouncementTranscriptPayload>? AnnouncementTranscriptReceived;
+    public event Action<TranscriptNotificationPayload>? TranscriptNotificationRequested;
     public event Action<bool>? ConnectionChanged;
 
     public bool Connected { get; private set; }

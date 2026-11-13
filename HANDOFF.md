@@ -1,4 +1,4 @@
-# SchoolBell — handoff (2026-11-09)
+# SchoolBell — handoff (2026-11-13)
 
 For the next agent or engineer taking over SchoolBell. No prior conversation is needed. Read this
 whole file first, then `PROTOCOL.md`, `docs/OPERATIONS.md` and `docs/KNOWN-ISSUES.md`.
@@ -25,6 +25,34 @@ certified emergency notification system.
 
 ## 1. Where things stand
 
+**0.9.16 release preparation (2026-11-13):** the field outage exposed revision 4 expiring at
+01:00 CST on Nov 13; RHS-17141 reconnected at 08:52 and accepted revision 5 at 09:30. Added daily
+automatic horizon renewal from published rule/calendar/sound snapshots (startup recovery; draft
+edits stay unpublished), Admin → Settings bell card duration/off switch, and separate Admin →
+Client logs with authenticated background uploads of retained Windows SchoolBell logs, endpoint
+filtering, paging, downloads and a separate-window link. Notification and log features require
+both the new server and Windows clients. Legacy schedules without snapshots adopt matching saved
+rules; a mismatch is shown on Bells → Calendar & publish and requires one explicit Publish.
+The owner authorized building and publishing this release. School deployment remains separate.
+
+**Transcription repairs in the same local work (2026-11-13):** recorded announcements previously
+waited until the 24-hour offer expired before getting a transcript job. Upload now queues immediately;
+the worker repairs missing jobs for retained recordings on startup, reclaims interrupted running jobs,
+drains ready work without five-second gaps, retries empty output/timeouts with backoff, and prioritizes
+final transcripts over live previews. Quiet inference input is amplified (bounded at 32×), with only
+digital silence skipped. History polls details and shows job state/errors; Admin probes model health
+and shows actual threads/CPU allowance plus queue counts/timing. Client transcript lifecycle is tested
+independently of WinForms so audio-end/late previews cannot overwrite completed text. The owner's live
+server showed 12 threads and CPUQuota=12s, but only 2.2 seconds CPU in six minutes: the observed idle
+compute was consistent with unqueued recordings. See `docs/evidence/transcription-2026-11-13.md`.
+
+**Explicit transcript reminders (same local work):** History → Transcript → **Notify endpoints**
+sends the current completed schoolwide transcript to connected original-audience clients with
+`transcript_notify` capability. The card offers View/Ignore; no audio is replayed and no new
+recognition job is created. Counts distinguish sent/offline/old clients. Reminders are ephemeral,
+expire after ten minutes, do not move resync cursors, and are not repeated by ordinary history
+sync. Targeted transcript text remains office-only. Updated service and companion are required.
+
 | Item | State |
 |---|---|
 | GitHub | `0xC0FFEEBEEF/BellSystem`, **public**, branch `main`. Licence GPL-3.0-or-later. |
@@ -32,7 +60,7 @@ certified emergency notification system.
 | **v0.9.15** | Published from commit `250e1a9`; server bundle sha256 `eeaba33c…75fd`, installer `d7bb06ad…8a24f`. |
 | School server | `rhsvoice.SCSD.local` (10.8.0.46), Ubuntu 24.04, school timezone America/Chicago. Reported **0.9.12** and transcribing queued announcements on 2026-11-06; 0.9.15 is published but not yet confirmed deployed. Admin account `scsd`. |
 | School computers | Nearly all on client **0.9.8**. RJH-LAB on 0.9.7. **RHS-17141 (jennifer.massey) is broken**: its 0.9.7 update aborted and left the service stopped (repair in §5.4). |
-| Tests | 147 server + 73 client, all passing. The old fake-server cursor assertion race is fixed. |
+| Tests | 170 server + 86 client, all passing. The old fake-server cursor assertion race is fixed. |
 
 **What v0.9.9 adds over v0.9.8** (all committed and pushed):
 

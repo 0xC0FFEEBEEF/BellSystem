@@ -298,11 +298,13 @@ public sealed partial class AnnouncementsService
                     ON CONFLICT(announcement_id, device_id, state) DO UPDATE SET updated_at = $t
                     """, ("$a", announcementId), ("$d", deviceId), ("$t", now));
             }
+            EnsureTranscriptQueued(conn, null, announcementId, now);
             Audit.Add(conn, null, user.Username, "announcement.recorded_upload",
                 $"announcement={announcementId} devices={targets.Count} bytes={final.Bytes} sha256={final.Sha256} " +
                 $"duration_ms={final.DurationMs} source_rate={srcRate} resampled={(resampled ? 1 : 0)}");
         }
 
+        NotifyTranscriptionWork();
         // Recorded offers stay offerable until offer_expires_at: the offer lives in the durable
         // outbox and is re-offered on resync while it is still valid (ControlHub.OutboxReplayOk).
         var offerEnv = OfferEnvelope(announcementId, "recorded", snapshotId, "normal", offerExpiresAt,
@@ -477,7 +479,7 @@ public sealed partial class AnnouncementsService
                 """,
                 ("$t", now), ("$b", endedBy), ("$f", SumFramesSent(announcementId)), ("$a", announcementId));
             if (changed == 0) return false;
-            EnsureTranscriptQueued(conn, null, announcementId, now);
+            if (ann.RecordingSha256 is not null) EnsureTranscriptQueued(conn, null, announcementId, now);
             Audit.Add(conn, null, actor, "announcement.end",
                 $"announcement={announcementId} ended_by={endedBy} devices={targets.Count}");
         }
@@ -487,6 +489,7 @@ public sealed partial class AnnouncementsService
         foreach (var (deviceId, _) in targets) _outbox.Enqueue(deviceId, endEnv);
         _media.EndAnnouncement(announcementId);
         _media.Forget(announcementId);
+        NotifyTranscriptionWork();
         PushHistory(announcementId);   // tray history: entry appears now, transcript follows
 
         _log.LogInformation("announcement {AnnouncementId} ended ({EndedBy}) for {Count} device(s); recording {Path}",
@@ -506,6 +509,10 @@ public sealed partial class AnnouncementsService
             WHERE announcement_id = $a
             """,
             ("$p", path), ("$s", final.Sha256), ("$b", final.Bytes), ("$d", final.DurationMs), ("$a", announcementId));
+        EnsureTranscriptQueued(conn, null, announcementId, NowMs);
+        conn.Dispose();
+        NotifyTranscriptionWork();
+        PushHistory(announcementId);
         _log.LogInformation("announcement {AnnouncementId} recording finalized: {Samples} samples, {Bytes} bytes, sha256 {Sha}",
             announcementId, final.Samples, final.Bytes, final.Sha256[..12]);
     }

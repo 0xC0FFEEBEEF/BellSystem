@@ -75,7 +75,9 @@ trust-on-first-use and no certificate bypass.
 - **Home**: choose who hears it, hold to talk, ring the bell now, and see the next bells.
 - **Bells**: schedule templates (normal day, late start, early release, exams…) with periods and
   weekdays, date overrides (a blank override means no bells) and holidays. **Publish** compiles the next
-  7 days and pushes a signed manifest; each computer's accepted revision is shown. Offline computers keep
+  7 days and pushes a signed manifest; each computer's accepted revision is shown. The server renews
+  that published schedule every school day and on startup after an outage. Renewal uses the published
+  rules, calendar and sounds; saved edits still need **Publish**. Offline computers keep
   running their last accepted manifest until it expires, then report `stale_cache`. **Bell sounds**
   uploads or replaces sounds (`std-bell` is the school bell); republish so cached bells pick up a
   replaced sound.
@@ -92,8 +94,30 @@ trust-on-first-use and no certificate bypass.
   transcript text stays office-only. Administrators and in-scope operators can choose **Redo with
   Whisper** when the stored recording still exists; the current text remains visible until the new
   transcription succeeds.
+- **History → Transcript → Notify endpoints** sends the current completed schoolwide transcript
+  to connected, updated computers in the original announcement audience. The persistent classroom
+  card says **Transcript ready** and offers **View transcript** / **Ignore**. It sends no audio and
+  does not rerun recognition. History reports the sent, offline and client-update counts. Reminders
+  are immediate, not queued for offline computers; ordinary history synchronization never repeats
+  the popup. Targeted transcripts retain their office-only restriction.
 - **Keep computers awake** (`/admin`): scoped policies with an absolute expiry, honored offline. They
   do not unlock screens or override manual sleep.
+- **Admin → Settings → Bell notifications**: enable/disable classroom bell cards and set their
+  duration to 1–300 seconds (default 12). This applies to scheduled and manual bells, requires the
+  updated Windows client, and persists across offline restarts. Clicking a card dismisses it early.
+- **Admin → Client logs**: a separate verbose log viewer, with all endpoints or one endpoint,
+  text search, older uploads, a separate-window link, and complete filtered text downloads. Updated
+  clients send retained service logs (including exceptions), each profile's companion logs, enrollment
+  and updater logs under ProgramData\SchoolBell, and SchoolBell installer logs in Windows\Temp.
+  Existing local rotated logs are uploaded too; already-deleted local logs cannot be recovered.
+  Uploads use the enrolled device credential, run separately from audio/control, and resume from
+  acknowledged byte offsets after an outage. Server retention is 14 days from upload. Client logs
+  are visible only to administrators and remain separate from the server log.
+
+On upgrade from a release without published-rule snapshots, the renewal worker adopts the saved
+rules only if they reproduce the last published schedule. If they differ, **Bells → Calendar & publish**
+and the server log display the reason: explicitly publish the intended schedule once. The initial
+schedule for a new installation always requires an explicit Publish.
 
 The bell and announcement volume override raises the Windows master volume (and unmutes) for the
 duration of the sound, then puts master and per-app volume back exactly as they were.
@@ -108,6 +132,27 @@ web app writes a bounded request which `schoolbell-whisper-control.path` hands t
 Set `SchoolBell__TranscriptionEnabled=false` in
 `/etc/schoolbell/env` and restart `schoolbell` to disable it; queued final transcripts resume when it
 is re-enabled.
+
+Recorded uploads are queued for transcription immediately, independently of their 24-hour delivery
+window. Live recordings are queued after the WAV is finalized and closed. New work wakes the worker;
+eligible jobs run back-to-back, with recent requests first. Server startup reclaims interrupted jobs
+and repairs retained recordings missing transcription jobs, including recorded offers from older
+releases that still show `transcript: none`. Existing corrected transcripts are preserved during redo.
+Empty output and request timeouts are retried with backoff and shown as errors, never saved as a
+successful empty transcript. Final jobs take priority over best-effort live previews.
+
+**Admin → Settings → Transcription performance** probes Whisper's `/health` endpoint and shows
+whether the model is ready, whether transcription is enabled, queued/running/failed jobs, the latest
+job duration and error, and (when available) the actual process thread count and cgroup CPU allowance.
+An old `applied` settings file alone does not establish that the engine is running. The core slider
+sets an allowance; CPU use varies across recognition stages and more threads are not always faster.
+History refreshes open transcript details every two seconds and distinguishes queued, running,
+retrying and failed work. Classroom transcript windows retain completed text when audio ends.
+
+Recognition uses an English `small.en` model. Only digital silence is skipped without inference;
+quiet audio receives up to 32× gain in the inference copy. The original audio and playback volume
+are unchanged. Local speech checks and limits are recorded in
+[`evidence/transcription-2026-11-13.md`](evidence/transcription-2026-11-13.md).
 
 ## Updates
 
